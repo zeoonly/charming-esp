@@ -745,6 +745,7 @@ end))
 for _, p in ipairs(Players:GetPlayers()) do
     if p.Character then attachESP(p) end
 end
+
 track(Players.PlayerAdded:Connect(function(p)
     if p.Character then attachESP(p) end
     p.CharacterAdded:Connect(function()
@@ -752,6 +753,7 @@ track(Players.PlayerAdded:Connect(function(p)
         attachESP(p)
     end)
 end))
+
 track(Players.PlayerRemoving:Connect(removeESP))
 
 -- ============ MINIMIZE ============
@@ -760,8 +762,60 @@ track(MinBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     Scroll.Visible = not minimized
     if minimized then
-        TweenService:Create(Main, TweenInfo.new(0.25), {Size = UDim2.new(0, 280, 0, 52)}):Play()
+        TweenService:Create(Main, TweenInfo.new(0.25), {
+            Size = UDim2.new(0, 280, 0, 52)
+        }):Play()
         MinBtn.Text = "+"
     else
-        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 560)}):Play()
-        MinBtn.Text = "–
+        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = UDim2.new(0, 280, 0, 560)
+        }):Play()
+        MinBtn.Text = "–"
+    end
+end))
+
+-- ============ ENTRANCE ============
+Main.Size = UDim2.new(0, 0, 0, 0)
+TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 280, 0, 560)
+}):Play()
+
+-- ============ KILL ============
+local function Kill()
+    if Killed then return end
+    Killed = true
+
+    if runConn then pcall(function() runConn:Disconnect() end) end
+    for _, c in ipairs(Connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    Connections = {}
+
+    for p, _ in pairs(ESP) do removeESP(p) end
+    ESP = {}
+
+    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
+    if TriggerFOVCircle then pcall(function() TriggerFOVCircle:Remove() end) end
+    FOVCircle = nil
+    TriggerFOVCircle = nil
+
+    if ScreenGui and ScreenGui.Parent then
+        ScreenGui:Destroy()
+    end
+
+    _G._CharmCombatCleanup = nil
+    print("✨ Charming Combat unloaded")
+end
+
+track(KillBtn.MouseButton1Click:Connect(Kill))
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Delete or input.KeyCode == Enum.KeyCode.End then
+        Kill()
+    end
+end))
+
+_G._CharmCombatCleanup = Kill
+
+print("✨ Charming Combat loaded — press DELETE or ✕ to unload")
+print("   ESP: ON  |  Aimbot: RIGHT MOUSE  |  Triggerbot: toggle in menu")
