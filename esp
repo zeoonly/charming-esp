@@ -1,5 +1,5 @@
--- ✨ Charming ESP + Aimbot + Triggerbot ✨
--- Full featured combat & visual assist with UI
+-- ✨ Charming Combat — Optimized ✨
+-- Fixed lag: bounded connections, throttled updates, less per-frame work
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -30,7 +30,6 @@ local Palette = {
 
 -- ============ CONFIG ============
 local Config = {
-    -- ESP / Highlight
     ESPEnabled = true,
     ThickOutline = true,
     ShowFill = true,
@@ -42,26 +41,23 @@ local Config = {
     BoxThickness = 0.15,
     MaxDistance = 1000,
 
-    -- Aimbot
     AimbotEnabled = false,
-    AimbotKey = Enum.UserInputType.MouseButton2,  -- right mouse
-    AimbotFOV = 150,                              -- pixels
-    AimbotSmoothing = 0.15,                       -- 0 = snap, 1 = no movement
-    AimbotTargetPart = "Head",                    -- "Head" or "HumanoidRootPart"
+    AimbotKey = Enum.UserInputType.MouseButton2,
+    AimbotFOV = 150,
+    AimbotSmoothing = 0.15,
+    AimbotTargetPart = "Head",
     AimbotVisibleCheck = true,
     AimbotDrawFOV = true,
     AimbotTeamCheck = true,
     AimbotMaxDistance = 500,
 
-    -- Triggerbot
     TriggerbotEnabled = false,
-    TriggerbotDelay = 0.05,                       -- seconds
-    TriggerbotFOV = 12,                           -- pixels tolerance around crosshair
+    TriggerbotDelay = 0.05,
+    TriggerbotFOV = 12,
     TriggerbotTeamCheck = true,
     TriggerbotMaxDistance = 500,
     TriggerbotVisibleCheck = true,
 
-    -- Colors for FOV circles
     FOVColor = Color3.fromRGB(255, 138, 190),
 }
 
@@ -74,13 +70,10 @@ local AimbotHeld = false
 local AimbotTarget = nil
 local TriggerCooldown = 0
 local TriggerActive = false
-local FOVCircle = nil
-local TriggerFOVCircle = nil
+local FOVCircle, TriggerFOVCircle
+local hasDrawing = (Drawing and Drawing.new)
 
 local function track(c) table.insert(Connections, c) return c end
-
--- ============ DRAWING CHECK ============
-local hasDrawing = (Drawing and Drawing.new)
 
 -- ============ UI ROOT ============
 ScreenGui = Instance.new("ScreenGui")
@@ -126,7 +119,6 @@ Main.Parent = ScreenGui
 addCorner(Main, 16)
 addStroke(Main, Palette.Stroke, 1.5, 0.4)
 
--- Header
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 52)
 Header.BackgroundColor3 = Palette.BgSoft
@@ -174,7 +166,6 @@ Subtitle.Font = Enum.Font.Gotham
 Subtitle.TextXAlignment = Enum.TextXAlignment.Left
 Subtitle.Parent = Header
 
--- Minimize
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 26, 0, 26)
 MinBtn.Position = UDim2.new(1, -68, 0.5, -13)
@@ -194,7 +185,6 @@ track(MinBtn.MouseLeave:Connect(function()
     TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card}):Play()
 end))
 
--- Kill
 local KillBtn = Instance.new("TextButton")
 KillBtn.Size = UDim2.new(0, 26, 0, 26)
 KillBtn.Position = UDim2.new(1, -36, 0.5, -13)
@@ -214,7 +204,6 @@ track(KillBtn.MouseLeave:Connect(function()
     TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card, TextColor3 = Palette.Danger}):Play()
 end))
 
--- Scroll
 local Scroll = Instance.new("ScrollingFrame")
 Scroll.Size = UDim2.new(1, -20, 1, -72)
 Scroll.Position = UDim2.new(0, 10, 0, 62)
@@ -237,7 +226,6 @@ Pad.PaddingTop = UDim.new(0, 4)
 Pad.PaddingBottom = UDim.new(0, 8)
 Pad.Parent = Scroll
 
--- Section label
 local function sectionLabel(text)
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1, -8, 0, 22)
@@ -251,7 +239,6 @@ local function sectionLabel(text)
     return lbl
 end
 
--- Toggle
 local function createToggle(name, key, emoji)
     local Card = Instance.new("Frame")
     Card.Size = UDim2.new(1, -8, 0, 40)
@@ -311,7 +298,6 @@ local function createToggle(name, key, emoji)
         TweenService:Create(Card, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card}):Play()
         TweenService:Create(accentBar, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Accent}):Play()
     end))
-
     track(Btn.MouseButton1Click:Connect(function()
         if Killed then return end
         Config[key] = not Config[key]
@@ -324,7 +310,9 @@ local function createToggle(name, key, emoji)
     return Card
 end
 
--- Slider
+-- ============ SLIDER (fixed: no per-slider global connections) ============
+local ActiveSlider = nil
+
 local function createSlider(name, key, minVal, maxVal, step, emoji)
     local Card = Instance.new("Frame")
     Card.Size = UDim2.new(1, -8, 0, 56)
@@ -379,17 +367,13 @@ local function createSlider(name, key, minVal, maxVal, step, emoji)
     Knob.Parent = SliderBG
     addCorner(Knob, 7)
 
-    local dragging = false
-
     local function updateFromX(x)
         local rel = math.clamp((x - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
         local val = minVal + (maxVal - minVal) * rel
         val = math.floor(val / step + 0.5) * step
         Config[key] = val
-        ValueLabel.Text = tostring(val)
-        TweenService:Create(SliderFill, TweenInfo.new(0.1), {
-            Size = UDim2.new(rel, 0, 1, 0)
-        }):Play()
+        ValueLabel.Text = string.format("%.2f", val):gsub("%.?0+$", "")
+        SliderFill.Size = UDim2.new(rel, 0, 1, 0)
         Knob.Position = UDim2.new(rel, -7, 0.5, -7)
     end
 
@@ -400,24 +384,25 @@ local function createSlider(name, key, minVal, maxVal, step, emoji)
     hit.Parent = SliderBG
 
     track(hit.MouseButton1Down:Connect(function()
-        dragging = true
+        ActiveSlider = updateFromX
         updateFromX(UserInputService:GetMouseLocation().X)
     end))
-    track(UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end))
-    track(UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateFromX(input.Position.X)
-        end
-    end))
-
     return Card
 end
 
--- FOV circle drawings (using Drawing API if available)
+-- Single global connection for slider dragging (instead of one per slider)
+track(UserInputService.InputChanged:Connect(function(input)
+    if ActiveSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
+        ActiveSlider(input.Position.X)
+    end
+end))
+track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        ActiveSlider = nil
+    end
+end))
+
+-- FOV circles
 if hasDrawing then
     FOVCircle = Drawing.new("Circle")
     FOVCircle.Thickness = 1.5
@@ -438,7 +423,7 @@ if hasDrawing then
     TriggerFOVCircle.Visible = false
 end
 
--- ============ SECTIONS ============
+-- Sections
 sectionLabel("✦ VISUALS")
 createToggle("Enable ESP", "ESPEnabled", "👁")
 createToggle("Thick Outline", "ThickOutline", "▢")
@@ -462,7 +447,7 @@ createToggle("Trigger Team Check", "TriggerbotTeamCheck", "🛡")
 createSlider("Delay (s)", "TriggerbotDelay", 0.0, 1.0, 0.01, "⏱")
 createSlider("Trigger FOV", "TriggerbotFOV", 2, 60, 1, "🎯")
 
--- ============ ESP LOGIC ============
+-- ============ ESP LOGIC (fixed: no duplicate CharacterAdded) ============
 local function isSameTeam(player, useTeamCheck)
     if not useTeamCheck then return false end
     if not player.Team or not LocalPlayer.Team then return false end
@@ -473,6 +458,7 @@ local function removeESP(player)
     if ESP[player] then
         pcall(function() if ESP[player].Highlight then ESP[player].Highlight:Destroy() end end)
         pcall(function() if ESP[player].SelectionBox then ESP[player].SelectionBox:Destroy() end end)
+        if ESP[player].Conn then ESP[player].Conn:Disconnect() end
         ESP[player] = nil
     end
 end
@@ -503,30 +489,31 @@ local function attachESP(player)
     box.Adornee = char
     box.Parent = char
 
-    ESP[player] = { Highlight = hl, SelectionBox = box }
-
-    track(player.CharacterAdded:Connect(function()
+    -- ONE CharacterAdded connection per player, stored in ESP and cleaned up
+    local conn
+    conn = player.CharacterAdded:Connect(function()
+        if Killed then return end
         task.wait(0.3)
         attachESP(player)
-    end))
+    end)
+
+    ESP[player] = { Highlight = hl, SelectionBox = box, Conn = conn }
 end
 
--- ============ AIMBOT LOGIC ============
+-- ============ AIMBOT (fixed: throttled raycast) ============
 local function isVisible(targetPart)
     if not Config.AimbotVisibleCheck then return true end
     local origin = Camera.CFrame.Position
-    local dir = (targetPart.Position - origin)
+    local dir = targetPart.Position - origin
     local ray = Ray.new(origin, dir)
     local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
-    if hit and hit:IsDescendantOf(targetPart.Parent) then
-        return true
-    end
-    return false
+    return hit and hit:IsDescendantOf(targetPart.Parent)
 end
 
 local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist)
     local mouse = UserInputService:GetMouseLocation()
     local closest, closestDist = nil, fovRadius
+    local myPos = Camera.CFrame.Position
 
     for _, player in pairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -534,12 +521,12 @@ local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist)
 
         local char = player.Character
         if not char then continue end
-        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head")
         if not part then continue end
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then continue end
 
-        local dist = (Camera.CFrame.Position - part.Position).Magnitude
+        local dist = (myPos - part.Position).Magnitude
         if dist > maxDist then continue end
 
         local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -548,7 +535,6 @@ local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist)
         local dx = screenPos.X - mouse.X
         local dy = screenPos.Y - mouse.Y
         local screenDist = math.sqrt(dx * dx + dy * dy)
-
         if screenDist < closestDist then
             closestDist = screenDist
             closest = { player = player, part = part }
@@ -557,37 +543,40 @@ local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist)
     return closest
 end
 
+local aimbotAccum = 0
 local function applyAimbot(dt)
-    if not Config.AimbotEnabled or not AimbotHeld then return end
+    if not Config.AimbotEnabled or not AimbotHeld then
+        AimbotTarget = nil
+        return
+    end
 
-    local target = getClosestToCursor(
-        Config.AimbotFOV,
-        Config.AimbotTargetPart,
-        Config.AimbotTeamCheck,
-        Config.AimbotMaxDistance
-    )
+    -- Only scan every 0.05s instead of every frame
+    aimbotAccum += dt
+    if aimbotAccum < 0.05 and AimbotTarget and AimbotTarget.part.Parent then
+        -- reuse current target, still smoothly aim
+    else
+        aimbotAccum = 0
+        AimbotTarget = getClosestToCursor(
+            Config.AimbotFOV,
+            Config.AimbotTargetPart,
+            Config.AimbotTeamCheck,
+            Config.AimbotMaxDistance
+        )
+    end
 
-    AimbotTarget = target
-    if not target then return end
+    if not AimbotTarget then return end
+    if Config.AimbotVisibleCheck and not isVisible(AimbotTarget.part) then return end
 
-    if Config.AimbotVisibleCheck and not isVisible(target.part) then return end
-
-    local targetPos = target.part.Position
     local currentCF = Camera.CFrame
-    local desiredCF = CFrame.new(currentCF.Position, targetPos)
-
-    -- Smoothing: lerp between current and desired
-    -- Lower smoothing value = faster snap
-    local smoothFactor = 1 - Config.AimbotSmoothing
-    smoothFactor = math.clamp(smoothFactor * dt * 60, 0, 1)
-
+    local desiredCF = CFrame.new(currentCF.Position, AimbotTarget.part.Position)
+    local smoothFactor = math.clamp((1 - Config.AimbotSmoothing) * dt * 60, 0, 1)
     Camera.CFrame = currentCF:Lerp(desiredCF, smoothFactor)
 end
 
--- ============ TRIGGERBOT LOGIC ============
+-- ============ TRIGGERBOT (fixed: uses task.delay, not yield) ============
 local function isCrosshairOnTarget(fovTolerance, partName, useTeamCheck, maxDist)
     local mouse = UserInputService:GetMouseLocation()
-    local best = false
+    local myPos = Camera.CFrame.Position
 
     for _, player in pairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -595,12 +584,12 @@ local function isCrosshairOnTarget(fovTolerance, partName, useTeamCheck, maxDist
 
         local char = player.Character
         if not char then continue end
-        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head")
         if not part then continue end
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if not humanoid or humanoid.Health <= 0 then continue end
 
-        local dist = (Camera.CFrame.Position - part.Position).Magnitude
+        local dist = (myPos - part.Position).Magnitude
         if dist > maxDist then continue end
 
         local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -609,18 +598,18 @@ local function isCrosshairOnTarget(fovTolerance, partName, useTeamCheck, maxDist
         local dx = screenPos.X - mouse.X
         local dy = screenPos.Y - mouse.Y
         local screenDist = math.sqrt(dx * dx + dy * dy)
-
         if screenDist <= fovTolerance then
-            if Config.TriggerbotVisibleCheck then
-                if isVisible(part) then return true end
-            else
-                return true
-            end
+            if not Config.TriggerbotVisibleCheck then return true end
+            local origin = myPos
+            local ray = Ray.new(origin, part.Position - origin)
+            local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+            if hit and hit:IsDescendantOf(part.Parent) then return true end
         end
     end
     return false
 end
 
+local triggerAccum = 0
 local function applyTriggerbot(dt)
     TriggerActive = false
     if not Config.TriggerbotEnabled then return end
@@ -628,107 +617,113 @@ local function applyTriggerbot(dt)
     TriggerCooldown = math.max(0, TriggerCooldown - dt)
     if TriggerCooldown > 0 then return end
 
-    local onTarget = isCrosshairOnTarget(
-        Config.TriggerbotFOV,
-        "Head",
-        Config.TriggerbotTeamCheck,
-        Config.TriggerbotMaxDistance
-    )
+    -- Only scan every 0.03s
+    triggerAccum += dt
+    if triggerAccum < 0.03 then return end
+    triggerAccum = 0
 
-    if onTarget then
+    if isCrosshairOnTarget(Config.TriggerbotFOV, "Head", Config.TriggerbotTeamCheck, Config.TriggerbotMaxDistance) then
         TriggerActive = true
         pcall(function()
             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
         end)
-        task.wait(Config.TriggerbotDelay)
-        pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        task.delay(Config.TriggerbotDelay, function()
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+            end)
         end)
-        TriggerCooldown = Config.TriggerbotDelay + 0.05
+        TriggerCooldown = Config.TriggerbotDelay + 0.08
     end
 end
 
--- ============ MAIN LOOP ============
+-- ============ MAIN LOOP (fixed: throttle expensive ops) ============
 local t = 0
+local espTick = 0
 local runConn
 runConn = RunService.RenderStepped:Connect(function(dt)
     if Killed then return end
     t += dt
+    espTick += dt
 
-    -- ===== ESP UPDATE =====
-    for player, data in pairs(ESP) do
-        local hl = data.Highlight
-        local box = data.SelectionBox
-        if not hl or not hl.Parent then continue end
+    -- ESP update only every 0.1s
+    if espTick >= 0.1 then
+        espTick = 0
+        for player, data in pairs(ESP) do
+            local hl = data.Highlight
+            local box = data.SelectionBox
+            if not hl or not hl.Parent then continue end
 
-        local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
-        if not Config.ESPEnabled
-            or not char or not hrp or not humanoid
-            or humanoid.Health <= 0
-            or isSameTeam(player, Config.TeamCheck)
-        then
-            hl.Enabled = false
-            if box then box.Visible = false end
-            continue
-        end
+            if not Config.ESPEnabled
+                or not char or not hrp or not humanoid
+                or humanoid.Health <= 0
+                or isSameTeam(player, Config.TeamCheck)
+            then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
 
-        local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
-        if dist > Config.MaxDistance then
-            hl.Enabled = false
-            if box then box.Visible = false end
-            continue
-        end
+            local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+            if dist > Config.MaxDistance then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
 
-        hl.Enabled = true
-        hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+            hl.Enabled = true
+            hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
 
-        local c
-        if Config.Rainbow then
-            c = Color3.fromHSV((t * 0.15 + player.UserId % 100 / 100) % 1, 0.6, 1)
-        elseif player.Team then
-            c = player.TeamColor.Color
-        else
-            c = Config.OutlineColor
-        end
+            local c
+            if Config.Rainbow then
+                c = Color3.fromHSV((t * 0.15 + player.UserId % 100 / 100) % 1, 0.6, 1)
+            elseif player.Team then
+                c = player.TeamColor.Color
+            else
+                c = Config.OutlineColor
+            end
 
-        hl.OutlineColor = c
-        hl.FillColor = c
-        hl.OutlineTransparency = 0
-        hl.FillTransparency = Config.ShowFill and Config.FillTransparency or 1
+            hl.OutlineColor = c
+            hl.FillColor = c
+            hl.OutlineTransparency = 0
+            hl.FillTransparency = Config.ShowFill and Config.FillTransparency or 1
 
-        if box then
-            box.Visible = Config.ThickOutline
-            box.Color3 = c
-            box.LineThickness = Config.BoxThickness
-            box.SurfaceTransparency = 1
+            if box then
+                box.Visible = Config.ThickOutline
+                box.Color3 = c
+                -- Only set LineThickness when it actually changes (avoid recompute)
+                if box.LineThickness ~= Config.BoxThickness then
+                    box.LineThickness = Config.BoxThickness
+                end
+            end
         end
     end
 
-    -- ===== AIMBOT =====
     pcall(applyAimbot, dt)
-
-    -- ===== TRIGGERBOT =====
     pcall(applyTriggerbot, dt)
 
-    -- ===== FOV CIRCLES =====
+    -- FOV circle updates only when drawn
     if hasDrawing then
         local viewport = Camera.ViewportSize
         local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
-
         if FOVCircle then
-            FOVCircle.Position = center
-            FOVCircle.Radius = Config.AimbotFOV
             FOVCircle.Visible = Config.AimbotEnabled and Config.AimbotDrawFOV
-            FOVCircle.Color = AimbotTarget and Palette.Success or Config.FOVColor
+            if FOVCircle.Visible then
+                FOVCircle.Position = center
+                FOVCircle.Radius = Config.AimbotFOV
+                FOVCircle.Color = AimbotTarget and Palette.Success or Config.FOVColor
+            end
         end
         if TriggerFOVCircle then
-            TriggerFOVCircle.Position = center
-            TriggerFOVCircle.Radius = Config.TriggerbotFOV
             TriggerFOVCircle.Visible = Config.TriggerbotEnabled
-            TriggerFOVCircle.Color = TriggerActive and Palette.Success or Palette.Danger
+            if TriggerFOVCircle.Visible then
+                TriggerFOVCircle.Position = center
+                TriggerFOVCircle.Radius = Config.TriggerbotFOV
+                TriggerFOVCircle.Color = TriggerActive and Palette.Success or Palette.Danger
+            end
         end
     end
 end)
@@ -748,24 +743,15 @@ end))
 
 -- ============ PLAYER MANAGEMENT ============
 for _, p in ipairs(Players:GetPlayers()) do
-    if p.Character then
-        attachESP(p)
-    else
-        p.CharacterAdded:Connect(function()
-            task.wait(0.3)
-            attachESP(p)
-        end)
-    end
+    if p.Character then attachESP(p) end
 end
-
 track(Players.PlayerAdded:Connect(function(p)
+    if p.Character then attachESP(p) end
     p.CharacterAdded:Connect(function()
         task.wait(0.3)
         attachESP(p)
     end)
-    if p.Character then attachESP(p) end
 end))
-
 track(Players.PlayerRemoving:Connect(removeESP))
 
 -- ============ MINIMIZE ============
@@ -778,27 +764,4 @@ track(MinBtn.MouseButton1Click:Connect(function()
         MinBtn.Text = "+"
     else
         TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 560)}):Play()
-        MinBtn.Text = "–"
-    end
-end))
-
--- ============ ENTRANCE ============
-Main.Size = UDim2.new(0, 0, 0, 0)
-TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Size = UDim2.new(0, 280, 0, 560)
-}):Play()
-
--- ============ KILL ============
-local function Kill()
-    if Killed then return end
-    Killed = true
-
-    if runConn then pcall(function() runConn:Disconnect() end) end
-    for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
-    Connections = {}
-
-    for p, _ in pairs(ESP) do removeESP(p) end
-    ESP = {}
-
-    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
-    if TriggerFOVCircle then pcall(function()
+        MinBtn.Text = "–
