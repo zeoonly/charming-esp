@@ -1,17 +1,17 @@
--- ✨ Charming Outline ESP — Thick Edition + UI ✨
--- Highlight + SelectionBox stack for thick, easy-to-spot outlines
--- Works in Studio AND in-game
+-- ✨ Charming ESP + Aimbot + Triggerbot ✨
+-- Full featured combat & visual assist with UI
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- Kill old instance
-if _G._CharmOutlineCleanup then pcall(_G._CharmOutlineCleanup) end
+if _G._CharmCombatCleanup then pcall(_G._CharmCombatCleanup) end
 
 -- ============ PALETTE ============
 local Palette = {
@@ -30,30 +30,61 @@ local Palette = {
 
 -- ============ CONFIG ============
 local Config = {
-    Enabled = true,
-    ThickOutline = true,       -- SelectionBox for thick lines
-    ShowFill = true,           -- Highlight fill
+    -- ESP / Highlight
+    ESPEnabled = true,
+    ThickOutline = true,
+    ShowFill = true,
     Rainbow = false,
     TeamCheck = true,
-    Pulse = false,
-    ThroughWalls = true,       -- AlwaysOnTop
+    ThroughWalls = true,
     OutlineColor = Color3.fromRGB(255, 255, 255),
     FillTransparency = 0.85,
-    BoxThickness = 0.15,       -- SelectionBox LineThickness
+    BoxThickness = 0.15,
     MaxDistance = 1000,
+
+    -- Aimbot
+    AimbotEnabled = false,
+    AimbotKey = Enum.UserInputType.MouseButton2,  -- right mouse
+    AimbotFOV = 150,                              -- pixels
+    AimbotSmoothing = 0.15,                       -- 0 = snap, 1 = no movement
+    AimbotTargetPart = "Head",                    -- "Head" or "HumanoidRootPart"
+    AimbotVisibleCheck = true,
+    AimbotDrawFOV = true,
+    AimbotTeamCheck = true,
+    AimbotMaxDistance = 500,
+
+    -- Triggerbot
+    TriggerbotEnabled = false,
+    TriggerbotDelay = 0.05,                       -- seconds
+    TriggerbotFOV = 12,                           -- pixels tolerance around crosshair
+    TriggerbotTeamCheck = true,
+    TriggerbotMaxDistance = 500,
+    TriggerbotVisibleCheck = true,
+
+    -- Colors for FOV circles
+    FOVColor = Color3.fromRGB(255, 138, 190),
 }
 
 -- ============ STATE ============
 local Connections = {}
-local ESP = {}   -- [player] = {Highlight=, SelectionBox=}
+local ESP = {}
 local ScreenGui
 local Killed = false
+local AimbotHeld = false
+local AimbotTarget = nil
+local TriggerCooldown = 0
+local TriggerActive = false
+local FOVCircle = nil
+local TriggerFOVCircle = nil
 
 local function track(c) table.insert(Connections, c) return c end
 
+-- ============ DRAWING CHECK ============
+local hasDrawing = (Drawing and Drawing.new)
+
 -- ============ UI ROOT ============
 ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CharmingOutline"
+ScreenGui.Name = "CharmingCombat"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.IgnoreGuiInset = true
@@ -61,32 +92,32 @@ ScreenGui.IgnoreGuiInset = true
 local ok = pcall(function() ScreenGui.Parent = CoreGui end)
 if not ok then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
-local function addCorner(parent, r)
+local function addCorner(p, r)
     local c = Instance.new("UICorner")
     c.CornerRadius = UDim.new(0, r or 10)
-    c.Parent = parent
+    c.Parent = p
     return c
 end
-local function addStroke(parent, color, thick, transp)
+local function addStroke(p, color, thick, transp)
     local s = Instance.new("UIStroke")
     s.Color = color or Palette.Stroke
     s.Thickness = thick or 1
     s.Transparency = transp or 0.3
-    s.Parent = parent
+    s.Parent = p
     return s
 end
-local function addGradient(parent, c1, c2, rot)
+local function addGradient(p, c1, c2, rot)
     local g = Instance.new("UIGradient")
     g.Color = ColorSequence.new(c1, c2)
     g.Rotation = rot or 45
-    g.Parent = parent
+    g.Parent = p
     return g
 end
 
 -- ============ MAIN WINDOW ============
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 260, 0, 400)
-Main.Position = UDim2.new(0.03, 0, 0.25, 0)
+Main.Size = UDim2.new(0, 280, 0, 560)
+Main.Position = UDim2.new(0.03, 0, 0.15, 0)
 Main.BackgroundColor3 = Palette.Bg
 Main.BorderSizePixel = 0
 Main.Active = true
@@ -116,7 +147,7 @@ local Icon = Instance.new("TextLabel")
 Icon.Size = UDim2.new(0, 30, 0, 30)
 Icon.Position = UDim2.new(0, 14, 0.5, -15)
 Icon.BackgroundTransparency = 1
-Icon.Text = "✨"
+Icon.Text = "🎯"
 Icon.TextSize = 22
 Icon.Font = Enum.Font.GothamBold
 Icon.Parent = Header
@@ -125,7 +156,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -140, 0, 20)
 Title.Position = UDim2.new(0, 48, 0, 10)
 Title.BackgroundTransparency = 1
-Title.Text = "Outline ESP"
+Title.Text = "Charm Combat"
 Title.TextColor3 = Palette.Text
 Title.TextSize = 16
 Title.Font = Enum.Font.GothamBold
@@ -136,7 +167,7 @@ local Subtitle = Instance.new("TextLabel")
 Subtitle.Size = UDim2.new(1, -140, 0, 14)
 Subtitle.Position = UDim2.new(0, 48, 0, 28)
 Subtitle.BackgroundTransparency = 1
-Subtitle.Text = "spot everyone instantly"
+Subtitle.Text = "esp • aim • trigger"
 Subtitle.TextColor3 = Palette.TextDim
 Subtitle.TextSize = 11
 Subtitle.Font = Enum.Font.Gotham
@@ -156,7 +187,6 @@ MinBtn.BorderSizePixel = 0
 MinBtn.AutoButtonColor = false
 MinBtn.Parent = Header
 addCorner(MinBtn, 8)
-
 track(MinBtn.MouseEnter:Connect(function()
     TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Accent}):Play()
 end))
@@ -177,7 +207,6 @@ KillBtn.BorderSizePixel = 0
 KillBtn.AutoButtonColor = false
 KillBtn.Parent = Header
 addCorner(KillBtn, 8)
-
 track(KillBtn.MouseEnter:Connect(function()
     TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Danger, TextColor3 = Color3.new(1,1,1)}):Play()
 end))
@@ -251,21 +280,21 @@ local function createToggle(name, key, emoji)
     Label.TextXAlignment = Enum.TextXAlignment.Left
     Label.Parent = Card
 
-    local Track = Instance.new("Frame")
-    Track.Size = UDim2.new(0, 40, 0, 22)
-    Track.Position = UDim2.new(1, -50, 0.5, -11)
-    Track.BackgroundColor3 = Config[key] and Palette.Success or Palette.BgSoft
-    Track.BorderSizePixel = 0
-    Track.Parent = Card
-    addCorner(Track, 11)
-    addStroke(Track, Palette.Stroke, 1, 0.5)
+    local Track_ = Instance.new("Frame")
+    Track_.Size = UDim2.new(0, 40, 0, 22)
+    Track_.Position = UDim2.new(1, -50, 0.5, -11)
+    Track_.BackgroundColor3 = Config[key] and Palette.Success or Palette.BgSoft
+    Track_.BorderSizePixel = 0
+    Track_.Parent = Card
+    addCorner(Track_, 11)
+    addStroke(Track_, Palette.Stroke, 1, 0.5)
 
     local Knob = Instance.new("Frame")
     Knob.Size = UDim2.new(0, 16, 0, 16)
     Knob.Position = Config[key] and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
     Knob.BackgroundColor3 = Color3.new(1,1,1)
     Knob.BorderSizePixel = 0
-    Knob.Parent = Track
+    Knob.Parent = Track_
     addCorner(Knob, 8)
 
     local Btn = Instance.new("TextButton")
@@ -287,7 +316,7 @@ local function createToggle(name, key, emoji)
         if Killed then return end
         Config[key] = not Config[key]
         local on = Config[key]
-        TweenService:Create(Track, TweenInfo.new(0.2), {BackgroundColor3 = on and Palette.Success or Palette.BgSoft}):Play()
+        TweenService:Create(Track_, TweenInfo.new(0.2), {BackgroundColor3 = on and Palette.Success or Palette.BgSoft}):Play()
         TweenService:Create(Knob, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
             Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
         }):Play()
@@ -295,20 +324,147 @@ local function createToggle(name, key, emoji)
     return Card
 end
 
-sectionLabel("✦ OUTLINE")
-createToggle("Enable ESP", "Enabled", "👁")
+-- Slider
+local function createSlider(name, key, minVal, maxVal, step, emoji)
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1, -8, 0, 56)
+    Card.BackgroundColor3 = Palette.Card
+    Card.BorderSizePixel = 0
+    Card.Parent = Scroll
+    addCorner(Card, 10)
+    addStroke(Card, Palette.Stroke, 1, 0.6)
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -60, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 4)
+    Label.BackgroundTransparency = 1
+    Label.Text = (emoji or "") .. "  " .. name
+    Label.TextColor3 = Palette.Text
+    Label.TextSize = 13
+    Label.Font = Enum.Font.GothamMedium
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Card
+
+    local ValueLabel = Instance.new("TextLabel")
+    ValueLabel.Size = UDim2.new(0, 60, 0, 20)
+    ValueLabel.Position = UDim2.new(1, -70, 0, 4)
+    ValueLabel.BackgroundTransparency = 1
+    ValueLabel.Text = tostring(Config[key])
+    ValueLabel.TextColor3 = Palette.Accent
+    ValueLabel.TextSize = 13
+    ValueLabel.Font = Enum.Font.GothamBold
+    ValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    ValueLabel.Parent = Card
+
+    local SliderBG = Instance.new("Frame")
+    SliderBG.Size = UDim2.new(1, -28, 0, 6)
+    SliderBG.Position = UDim2.new(0, 14, 1, -16)
+    SliderBG.BackgroundColor3 = Palette.BgSoft
+    SliderBG.BorderSizePixel = 0
+    SliderBG.Parent = Card
+    addCorner(SliderBG, 3)
+
+    local SliderFill = Instance.new("Frame")
+    SliderFill.Size = UDim2.new((Config[key] - minVal) / (maxVal - minVal), 0, 1, 0)
+    SliderFill.BackgroundColor3 = Palette.Accent
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBG
+    addCorner(SliderFill, 3)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 14, 0, 14)
+    Knob.Position = UDim2.new(SliderFill.Size.X.Scale, -7, 0.5, -7)
+    Knob.BackgroundColor3 = Color3.new(1,1,1)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = SliderBG
+    addCorner(Knob, 7)
+
+    local dragging = false
+
+    local function updateFromX(x)
+        local rel = math.clamp((x - SliderBG.AbsolutePosition.X) / SliderBG.AbsoluteSize.X, 0, 1)
+        local val = minVal + (maxVal - minVal) * rel
+        val = math.floor(val / step + 0.5) * step
+        Config[key] = val
+        ValueLabel.Text = tostring(val)
+        TweenService:Create(SliderFill, TweenInfo.new(0.1), {
+            Size = UDim2.new(rel, 0, 1, 0)
+        }):Play()
+        Knob.Position = UDim2.new(rel, -7, 0.5, -7)
+    end
+
+    local hit = Instance.new("TextButton")
+    hit.Size = UDim2.new(1, 0, 1, 0)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.Parent = SliderBG
+
+    track(hit.MouseButton1Down:Connect(function()
+        dragging = true
+        updateFromX(UserInputService:GetMouseLocation().X)
+    end))
+    track(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end))
+    track(UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateFromX(input.Position.X)
+        end
+    end))
+
+    return Card
+end
+
+-- FOV circle drawings (using Drawing API if available)
+if hasDrawing then
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Thickness = 1.5
+    FOVCircle.NumSides = 60
+    FOVCircle.Radius = Config.AimbotFOV
+    FOVCircle.Filled = false
+    FOVCircle.Color = Config.FOVColor
+    FOVCircle.Transparency = 0.6
+    FOVCircle.Visible = false
+
+    TriggerFOVCircle = Drawing.new("Circle")
+    TriggerFOVCircle.Thickness = 1
+    TriggerFOVCircle.NumSides = 40
+    TriggerFOVCircle.Radius = Config.TriggerbotFOV
+    TriggerFOVCircle.Filled = false
+    TriggerFOVCircle.Color = Palette.Danger
+    TriggerFOVCircle.Transparency = 0.5
+    TriggerFOVCircle.Visible = false
+end
+
+-- ============ SECTIONS ============
+sectionLabel("✦ VISUALS")
+createToggle("Enable ESP", "ESPEnabled", "👁")
 createToggle("Thick Outline", "ThickOutline", "▢")
 createToggle("Show Fill", "ShowFill", "🎨")
 createToggle("Through Walls", "ThroughWalls", "👻")
 createToggle("Rainbow", "Rainbow", "🌈")
-createToggle("Pulse", "Pulse", "💫")
-
-sectionLabel("✦ FILTERS")
 createToggle("Team Check", "TeamCheck", "🤝")
 
--- ============ HIGHLIGHT + SELECTIONBOX ============
-local function isSameTeam(player)
-    if not Config.TeamCheck then return false end
+sectionLabel("✦ AIMBOT")
+createToggle("Enable Aimbot", "AimbotEnabled", "🎯")
+createToggle("Visible Only", "AimbotVisibleCheck", "👀")
+createToggle("Draw FOV Circle", "AimbotDrawFOV", "⭕")
+createToggle("Aimbot Team Check", "AimbotTeamCheck", "🛡")
+createSlider("FOV", "AimbotFOV", 20, 400, 5, "📐")
+createSlider("Smoothness", "AimbotSmoothing", 0.02, 0.9, 0.01, "💧")
+
+sectionLabel("✦ TRIGGERBOT")
+createToggle("Enable Trigger", "TriggerbotEnabled", "⚡")
+createToggle("Trigger Visible", "TriggerbotVisibleCheck", "👀")
+createToggle("Trigger Team Check", "TriggerbotTeamCheck", "🛡")
+createSlider("Delay (s)", "TriggerbotDelay", 0.0, 1.0, 0.01, "⏱")
+createSlider("Trigger FOV", "TriggerbotFOV", 2, 60, 1, "🎯")
+
+-- ============ ESP LOGIC ============
+local function isSameTeam(player, useTeamCheck)
+    if not useTeamCheck then return false end
     if not player.Team or not LocalPlayer.Team then return false end
     return player.Team == LocalPlayer.Team
 end
@@ -323,13 +479,11 @@ end
 
 local function attachESP(player)
     if player == LocalPlayer then return end
-
     removeESP(player)
 
     local char = player.Character
     if not char then return end
 
-    -- Highlight (fill silhouette)
     local hl = Instance.new("Highlight")
     hl.Name = "CharmingHL"
     hl.FillColor = Config.OutlineColor
@@ -340,7 +494,6 @@ local function attachESP(player)
     hl.Adornee = char
     hl.Parent = char
 
-    -- SelectionBox (thicker line)
     local box = Instance.new("SelectionBox")
     box.Name = "CharmingSB"
     box.Color3 = Config.OutlineColor
@@ -358,6 +511,143 @@ local function attachESP(player)
     end))
 end
 
+-- ============ AIMBOT LOGIC ============
+local function isVisible(targetPart)
+    if not Config.AimbotVisibleCheck then return true end
+    local origin = Camera.CFrame.Position
+    local dir = (targetPart.Position - origin)
+    local ray = Ray.new(origin, dir)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    if hit and hit:IsDescendantOf(targetPart.Parent) then
+        return true
+    end
+    return false
+end
+
+local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist)
+    local mouse = UserInputService:GetMouseLocation()
+    local closest, closestDist = nil, fovRadius
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if isSameTeam(player, useTeamCheck) then continue end
+
+        local char = player.Character
+        if not char then continue end
+        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        if not part then continue end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then continue end
+
+        local dist = (Camera.CFrame.Position - part.Position).Magnitude
+        if dist > maxDist then continue end
+
+        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+        if not onScreen then continue end
+
+        local dx = screenPos.X - mouse.X
+        local dy = screenPos.Y - mouse.Y
+        local screenDist = math.sqrt(dx * dx + dy * dy)
+
+        if screenDist < closestDist then
+            closestDist = screenDist
+            closest = { player = player, part = part }
+        end
+    end
+    return closest
+end
+
+local function applyAimbot(dt)
+    if not Config.AimbotEnabled or not AimbotHeld then return end
+
+    local target = getClosestToCursor(
+        Config.AimbotFOV,
+        Config.AimbotTargetPart,
+        Config.AimbotTeamCheck,
+        Config.AimbotMaxDistance
+    )
+
+    AimbotTarget = target
+    if not target then return end
+
+    if Config.AimbotVisibleCheck and not isVisible(target.part) then return end
+
+    local targetPos = target.part.Position
+    local currentCF = Camera.CFrame
+    local desiredCF = CFrame.new(currentCF.Position, targetPos)
+
+    -- Smoothing: lerp between current and desired
+    -- Lower smoothing value = faster snap
+    local smoothFactor = 1 - Config.AimbotSmoothing
+    smoothFactor = math.clamp(smoothFactor * dt * 60, 0, 1)
+
+    Camera.CFrame = currentCF:Lerp(desiredCF, smoothFactor)
+end
+
+-- ============ TRIGGERBOT LOGIC ============
+local function isCrosshairOnTarget(fovTolerance, partName, useTeamCheck, maxDist)
+    local mouse = UserInputService:GetMouseLocation()
+    local best = false
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        if isSameTeam(player, useTeamCheck) then continue end
+
+        local char = player.Character
+        if not char then continue end
+        local part = char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+        if not part then continue end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then continue end
+
+        local dist = (Camera.CFrame.Position - part.Position).Magnitude
+        if dist > maxDist then continue end
+
+        local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+        if not onScreen then continue end
+
+        local dx = screenPos.X - mouse.X
+        local dy = screenPos.Y - mouse.Y
+        local screenDist = math.sqrt(dx * dx + dy * dy)
+
+        if screenDist <= fovTolerance then
+            if Config.TriggerbotVisibleCheck then
+                if isVisible(part) then return true end
+            else
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function applyTriggerbot(dt)
+    TriggerActive = false
+    if not Config.TriggerbotEnabled then return end
+
+    TriggerCooldown = math.max(0, TriggerCooldown - dt)
+    if TriggerCooldown > 0 then return end
+
+    local onTarget = isCrosshairOnTarget(
+        Config.TriggerbotFOV,
+        "Head",
+        Config.TriggerbotTeamCheck,
+        Config.TriggerbotMaxDistance
+    )
+
+    if onTarget then
+        TriggerActive = true
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        end)
+        task.wait(Config.TriggerbotDelay)
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+        end)
+        TriggerCooldown = Config.TriggerbotDelay + 0.05
+    end
+end
+
 -- ============ MAIN LOOP ============
 local t = 0
 local runConn
@@ -365,6 +655,7 @@ runConn = RunService.RenderStepped:Connect(function(dt)
     if Killed then return end
     t += dt
 
+    -- ===== ESP UPDATE =====
     for player, data in pairs(ESP) do
         local hl = data.Highlight
         local box = data.SelectionBox
@@ -374,19 +665,17 @@ runConn = RunService.RenderStepped:Connect(function(dt)
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
-        -- Dead / invalid / teammate / disabled -> hide
-        if not Config.Enabled
+        if not Config.ESPEnabled
             or not char or not hrp or not humanoid
             or humanoid.Health <= 0
-            or isSameTeam(player)
+            or isSameTeam(player, Config.TeamCheck)
         then
             hl.Enabled = false
             if box then box.Visible = false end
             continue
         end
 
-        -- Distance check
-        local dist = (workspace.CurrentCamera.CFrame.Position - hrp.Position).Magnitude
+        local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
         if dist > Config.MaxDistance then
             hl.Enabled = false
             if box then box.Visible = false end
@@ -396,7 +685,6 @@ runConn = RunService.RenderStepped:Connect(function(dt)
         hl.Enabled = true
         hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
 
-        -- Color
         local c
         if Config.Rainbow then
             c = Color3.fromHSV((t * 0.15 + player.UserId % 100 / 100) % 1, 0.6, 1)
@@ -408,21 +696,9 @@ runConn = RunService.RenderStepped:Connect(function(dt)
 
         hl.OutlineColor = c
         hl.FillColor = c
+        hl.OutlineTransparency = 0
+        hl.FillTransparency = Config.ShowFill and Config.FillTransparency or 1
 
-        if Config.Pulse then
-            hl.OutlineTransparency = math.sin(t * 3) * 0.2
-            hl.FillTransparency = Config.FillTransparency + math.sin(t * 3) * 0.05
-        else
-            hl.OutlineTransparency = 0
-            hl.FillTransparency = Config.FillTransparency
-        end
-
-        -- Fill toggle
-        if not Config.ShowFill then
-            hl.FillTransparency = 1
-        end
-
-        -- Thick outline (SelectionBox)
         if box then
             box.Visible = Config.ThickOutline
             box.Color3 = c
@@ -430,7 +706,45 @@ runConn = RunService.RenderStepped:Connect(function(dt)
             box.SurfaceTransparency = 1
         end
     end
+
+    -- ===== AIMBOT =====
+    pcall(applyAimbot, dt)
+
+    -- ===== TRIGGERBOT =====
+    pcall(applyTriggerbot, dt)
+
+    -- ===== FOV CIRCLES =====
+    if hasDrawing then
+        local viewport = Camera.ViewportSize
+        local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+
+        if FOVCircle then
+            FOVCircle.Position = center
+            FOVCircle.Radius = Config.AimbotFOV
+            FOVCircle.Visible = Config.AimbotEnabled and Config.AimbotDrawFOV
+            FOVCircle.Color = AimbotTarget and Palette.Success or Config.FOVColor
+        end
+        if TriggerFOVCircle then
+            TriggerFOVCircle.Position = center
+            TriggerFOVCircle.Radius = Config.TriggerbotFOV
+            TriggerFOVCircle.Visible = Config.TriggerbotEnabled
+            TriggerFOVCircle.Color = TriggerActive and Palette.Success or Palette.Danger
+        end
+    end
 end)
+
+-- ============ AIMBOT KEY ============
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Config.AimbotKey then
+        AimbotHeld = true
+    end
+end))
+track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Config.AimbotKey then
+        AimbotHeld = false
+    end
+end))
 
 -- ============ PLAYER MANAGEMENT ============
 for _, p in ipairs(Players:GetPlayers()) do
@@ -460,10 +774,10 @@ track(MinBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     Scroll.Visible = not minimized
     if minimized then
-        TweenService:Create(Main, TweenInfo.new(0.25), {Size = UDim2.new(0, 260, 0, 52)}):Play()
+        TweenService:Create(Main, TweenInfo.new(0.25), {Size = UDim2.new(0, 280, 0, 52)}):Play()
         MinBtn.Text = "+"
     else
-        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 260, 0, 400)}):Play()
+        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 560)}):Play()
         MinBtn.Text = "–"
     end
 end))
@@ -471,7 +785,7 @@ end))
 -- ============ ENTRANCE ============
 Main.Size = UDim2.new(0, 0, 0, 0)
 TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Size = UDim2.new(0, 260, 0, 400)
+    Size = UDim2.new(0, 280, 0, 560)
 }):Play()
 
 -- ============ KILL ============
@@ -486,22 +800,5 @@ local function Kill()
     for p, _ in pairs(ESP) do removeESP(p) end
     ESP = {}
 
-    if ScreenGui and ScreenGui.Parent then
-        ScreenGui:Destroy()
-    end
-
-    _G._CharmOutlineCleanup = nil
-    print("✨ Outline ESP unloaded")
-end
-
-track(KillBtn.MouseButton1Click:Connect(Kill))
-track(UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.Delete or input.KeyCode == Enum.KeyCode.End then
-        Kill()
-    end
-end))
-
-_G._CharmOutlineCleanup = Kill
-
-print("✨ Outline ESP loaded — press DELETE or ✕ to unload")
+    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
+    if TriggerFOVCircle then pcall(function()
