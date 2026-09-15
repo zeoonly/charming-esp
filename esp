@@ -1,4 +1,5 @@
 -- ✨ Charming ESP — Final ✨
+-- Aesthetic ESP with floating charm badges
 -- Confirmed working with Drawing API
 
 local Players = game:GetService("Players")
@@ -716,7 +717,6 @@ local function updateESP(dt)
         end
     end
 
-    -- Debug print every 5 seconds
     if frame % 300 == 0 then
         print(string.format("[Charming] running — visible: %d", drawnCount))
     end
@@ -779,4 +779,7 @@ local function Kill()
     end
 
     if getgenv then getgenv().CharmingESP = nil end
-    print("✨ Charming ESP unloaded
+    print("✨ Charming ESP unloaded")
+end
+
+-- ============ K
