@@ -1,0 +1,782 @@
+-- ✨ Charming ESP — Final ✨
+-- Confirmed working with Drawing API
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Kill previous run
+if getgenv and getgenv().CharmingESP and getgenv().CharmingESP.Kill then
+    pcall(getgenv().CharmingESP.Kill)
+end
+
+-- ============ PALETTE ============
+local Palette = {
+    Bg = Color3.fromRGB(24, 22, 34),
+    BgSoft = Color3.fromRGB(34, 31, 48),
+    Card = Color3.fromRGB(43, 39, 62),
+    CardHover = Color3.fromRGB(56, 50, 80),
+    Accent = Color3.fromRGB(255, 138, 190),
+    Accent2 = Color3.fromRGB(168, 143, 255),
+    Text = Color3.fromRGB(245, 240, 255),
+    TextDim = Color3.fromRGB(170, 162, 200),
+    Success = Color3.fromRGB(150, 245, 190),
+    Danger = Color3.fromRGB(255, 105, 120),
+    Stroke = Color3.fromRGB(80, 72, 110),
+}
+
+-- ============ STATE ============
+local Connections = {}
+local Threads = {}
+local Drawings = {}
+local ScreenGui
+local Killed = false
+
+local function track(c) table.insert(Connections, c) return c end
+
+-- ============ UI ROOT ============
+ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CharmingESP"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+
+local ok = pcall(function() ScreenGui.Parent = CoreGui end)
+if not ok then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+-- ============ HELPERS ============
+local function addGradient(parent, c1, c2, rot)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(c1, c2)
+    g.Rotation = rot or 45
+    g.Parent = parent
+    return g
+end
+local function addCorner(parent, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 10)
+    c.Parent = parent
+    return c
+end
+local function addStroke(parent, color, thick, transp)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Palette.Stroke
+    s.Thickness = thick or 1
+    s.Transparency = transp or 0.3
+    s.Parent = parent
+    return s
+end
+
+-- ============ MAIN WINDOW ============
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 280, 0, 460)
+Main.Position = UDim2.new(0.03, 0, 0.2, 0)
+Main.BackgroundColor3 = Palette.Bg
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+addCorner(Main, 16)
+addStroke(Main, Palette.Stroke, 1.5, 0.4)
+
+local Glow = Instance.new("ImageLabel")
+Glow.Size = UDim2.new(1, 40, 1, 40)
+Glow.Position = UDim2.new(0, -20, 0, -20)
+Glow.BackgroundTransparency = 1
+Glow.Image = "rbxassetid://5028857084"
+Glow.ImageColor3 = Palette.Accent2
+Glow.ImageTransparency = 0.7
+Glow.ZIndex = 0
+Glow.Parent = Main
+
+-- ============ HEADER ============
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 52)
+Header.BackgroundColor3 = Palette.BgSoft
+Header.BorderSizePixel = 0
+Header.Parent = Main
+addCorner(Header, 16)
+addGradient(Header, Palette.Accent2, Palette.Accent, 90)
+
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Size = UDim2.new(1, 0, 0, 16)
+HeaderFix.Position = UDim2.new(0, 0, 1, -16)
+HeaderFix.BackgroundColor3 = Palette.BgSoft
+HeaderFix.BorderSizePixel = 0
+HeaderFix.ZIndex = Header.ZIndex + 1
+HeaderFix.Parent = Header
+
+local Icon = Instance.new("TextLabel")
+Icon.Size = UDim2.new(0, 30, 0, 30)
+Icon.Position = UDim2.new(0, 14, 0.5, -15)
+Icon.BackgroundTransparency = 1
+Icon.Text = "💗"
+Icon.TextSize = 22
+Icon.Font = Enum.Font.GothamBold
+Icon.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -140, 0, 20)
+Title.Position = UDim2.new(0, 48, 0, 10)
+Title.BackgroundTransparency = 1
+Title.Text = "Charming ESP"
+Title.TextColor3 = Palette.Text
+Title.TextSize = 16
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Size = UDim2.new(1, -140, 0, 14)
+Subtitle.Position = UDim2.new(0, 48, 0, 28)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Text = "a little charm on everyone"
+Subtitle.TextColor3 = Palette.TextDim
+Subtitle.TextSize = 11
+Subtitle.Font = Enum.Font.Gotham
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Parent = Header
+
+-- Minimize
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 26, 0, 26)
+MinBtn.Position = UDim2.new(1, -68, 0.5, -13)
+MinBtn.BackgroundColor3 = Palette.Card
+MinBtn.Text = "–"
+MinBtn.TextColor3 = Palette.Text
+MinBtn.TextSize = 18
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.BorderSizePixel = 0
+MinBtn.AutoButtonColor = false
+MinBtn.Parent = Header
+addCorner(MinBtn, 8)
+
+track(MinBtn.MouseEnter:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Accent}):Play()
+end))
+track(MinBtn.MouseLeave:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card}):Play()
+end))
+
+-- Kill
+local KillBtn = Instance.new("TextButton")
+KillBtn.Size = UDim2.new(0, 26, 0, 26)
+KillBtn.Position = UDim2.new(1, -36, 0.5, -13)
+KillBtn.BackgroundColor3 = Palette.Card
+KillBtn.Text = "✕"
+KillBtn.TextColor3 = Palette.Danger
+KillBtn.TextSize = 16
+KillBtn.Font = Enum.Font.GothamBold
+KillBtn.BorderSizePixel = 0
+KillBtn.AutoButtonColor = false
+KillBtn.Parent = Header
+addCorner(KillBtn, 8)
+
+track(KillBtn.MouseEnter:Connect(function()
+    TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Danger, TextColor3 = Color3.new(1,1,1)}):Play()
+end))
+track(KillBtn.MouseLeave:Connect(function()
+    TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card, TextColor3 = Palette.Danger}):Play()
+end))
+
+-- ============ SCROLL ============
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -20, 1, -72)
+Scroll.Position = UDim2.new(0, 10, 0, 62)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = Palette.Accent2
+Scroll.ScrollBarImageTransparency = 0.4
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = Main
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 8)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Scroll
+
+local Pad = Instance.new("UIPadding")
+Pad.PaddingTop = UDim.new(0, 4)
+Pad.PaddingBottom = UDim.new(0, 8)
+Pad.Parent = Scroll
+
+-- ============ CONFIG ============
+local Config = {
+    Enabled = true,
+    ShowCharm = true,
+    ShowCharmGlow = true,
+    ShowAura = true,
+    ShowSparkles = true,
+    ShowNames = true,
+    ShowHealth = true,
+    ShowDistance = true,
+    ShowTracers = false,
+    TeamCheck = true,
+    RainbowCharm = true,
+    CharmBounce = true,
+    MaxDistance = 1000,
+    CharmStyle = "Heart",
+}
+
+local CharmPresets = {
+    Heart = "♥", Star = "★", Sparkle = "✦", Diamond = "◆",
+    Flower = "✿", Moon = "☾", Crown = "♛", Note = "♪", Clover = "☘",
+}
+
+-- ============ SECTION LABEL ============
+local function sectionLabel(text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -8, 0, 22)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "  " .. text
+    lbl.TextColor3 = Palette.TextDim
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = Scroll
+    return lbl
+end
+
+-- ============ TOGGLE ============
+local function createToggle(name, key, emoji)
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1, -8, 0, 40)
+    Card.BackgroundColor3 = Palette.Card
+    Card.BorderSizePixel = 0
+    Card.Parent = Scroll
+    addCorner(Card, 10)
+    addStroke(Card, Palette.Stroke, 1, 0.6)
+
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 3, 0.6, 0)
+    accentBar.Position = UDim2.new(0, 0, 0.2, 0)
+    accentBar.BackgroundColor3 = Palette.Accent
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = Card
+    addCorner(accentBar, 4)
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -70, 1, 0)
+    Label.Position = UDim2.new(0, 14, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = (emoji or "") .. "  " .. name
+    Label.TextColor3 = Palette.Text
+    Label.TextSize = 13
+    Label.Font = Enum.Font.GothamMedium
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Card
+
+    local Track = Instance.new("Frame")
+    Track.Size = UDim2.new(0, 40, 0, 22)
+    Track.Position = UDim2.new(1, -50, 0.5, -11)
+    Track.BackgroundColor3 = Config[key] and Palette.Success or Palette.BgSoft
+    Track.BorderSizePixel = 0
+    Track.Parent = Card
+    addCorner(Track, 11)
+    addStroke(Track, Palette.Stroke, 1, 0.5)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 16, 0, 16)
+    Knob.Position = Config[key] and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+    Knob.BackgroundColor3 = Color3.new(1,1,1)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = Track
+    addCorner(Knob, 8)
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, 0, 1, 0)
+    Btn.BackgroundTransparency = 1
+    Btn.Text = ""
+    Btn.Parent = Card
+
+    track(Btn.MouseEnter:Connect(function()
+        TweenService:Create(Card, TweenInfo.new(0.2), {BackgroundColor3 = Palette.CardHover}):Play()
+        TweenService:Create(accentBar, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Accent2}):Play()
+    end))
+    track(Btn.MouseLeave:Connect(function()
+        TweenService:Create(Card, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Card}):Play()
+        TweenService:Create(accentBar, TweenInfo.new(0.2), {BackgroundColor3 = Palette.Accent}):Play()
+    end))
+
+    track(Btn.MouseButton1Click:Connect(function()
+        if Killed then return end
+        Config[key] = not Config[key]
+        local on = Config[key]
+        TweenService:Create(Track, TweenInfo.new(0.2), {BackgroundColor3 = on and Palette.Success or Palette.BgSoft}):Play()
+        TweenService:Create(Knob, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        }):Play()
+    end))
+    return Card
+end
+
+-- ============ STYLE PICKER ============
+local function createStylePicker()
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1, -8, 0, 96)
+    Card.BackgroundColor3 = Palette.Card
+    Card.BorderSizePixel = 0
+    Card.Parent = Scroll
+    addCorner(Card, 10)
+    addStroke(Card, Palette.Stroke, 1, 0.6)
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -20, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 4)
+    Label.BackgroundTransparency = 1
+    Label.Text = "✦  Charm Style"
+    Label.TextColor3 = Palette.Text
+    Label.TextSize = 13
+    Label.Font = Enum.Font.GothamMedium
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Card
+
+    local Grid = Instance.new("Frame")
+    Grid.Size = UDim2.new(1, -16, 0, 62)
+    Grid.Position = UDim2.new(0, 8, 0, 28)
+    Grid.BackgroundTransparency = 1
+    Grid.Parent = Card
+
+    local GridLayout = Instance.new("UIGridLayout")
+    GridLayout.CellSize = UDim2.new(0, 38, 0, 28)
+    GridLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+    GridLayout.Parent = Grid
+
+    local styleButtons = {}
+
+    local function refresh()
+        for style, btn in pairs(styleButtons) do
+            local sel = (Config.CharmStyle == style)
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = sel and Palette.Accent or Palette.BgSoft
+            }):Play()
+            local l = btn:FindFirstChildOfClass("TextLabel")
+            if l then l.TextColor3 = sel and Color3.new(1,1,1) or Palette.TextDim end
+        end
+    end
+
+    for style, glyph in pairs(CharmPresets) do
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, 38, 0, 28)
+        b.BackgroundColor3 = Config.CharmStyle == style and Palette.Accent or Palette.BgSoft
+        b.Text = ""
+        b.BorderSizePixel = 0
+        b.AutoButtonColor = false
+        b.Parent = Grid
+        addCorner(b, 6)
+
+        local gl = Instance.new("TextLabel")
+        gl.Size = UDim2.new(1, 0, 1, 0)
+        gl.BackgroundTransparency = 1
+        gl.Text = glyph
+        gl.TextSize = 16
+        gl.Font = Enum.Font.GothamBold
+        gl.TextColor3 = Config.CharmStyle == style and Color3.new(1,1,1) or Palette.TextDim
+        gl.Parent = b
+
+        track(b.MouseButton1Click:Connect(function()
+            if Killed then return end
+            Config.CharmStyle = style
+            refresh()
+        end))
+        styleButtons[style] = b
+    end
+end
+
+sectionLabel("✦ CHARM")
+createToggle("Enable ESP", "Enabled", "👁")
+createToggle("Floating Charm", "ShowCharm", "💗")
+createToggle("Charm Glow", "ShowCharmGlow", "🌟")
+createToggle("Charm Bounce", "CharmBounce", "🎀")
+createStylePicker()
+
+sectionLabel("✦ AURA")
+createToggle("Show Aura", "ShowAura", "◯")
+createToggle("Show Sparkles", "ShowSparkles", "✨")
+
+sectionLabel("✦ LABELS")
+createToggle("Show Names", "ShowNames", "🏷")
+createToggle("Show Health", "ShowHealth", "❤")
+createToggle("Show Distance", "ShowDistance", "📏")
+createToggle("Show Tracers", "ShowTracers", "➶")
+
+sectionLabel("✦ SETTINGS")
+createToggle("Team Check", "TeamCheck", "🤝")
+createToggle("Rainbow Charm", "RainbowCharm", "🌈")
+
+-- ============================================================
+-- DRAWINGS
+-- ============================================================
+local function createDrawing(class, props)
+    local d = Drawing.new(class)
+    for k, v in pairs(props) do d[k] = v end
+    return d
+end
+
+local SPARKLE_COUNT = 5
+
+local function clearDrawings(player)
+    if Drawings[player] then
+        for _, obj in pairs(Drawings[player]) do
+            if type(obj) == "table" then
+                for _, sp in ipairs(obj) do pcall(function() sp:Remove() end) end
+            else
+                pcall(function() obj:Remove() end)
+            end
+        end
+        Drawings[player] = nil
+    end
+end
+
+local function createPlayerDrawings(player)
+    local d = {
+        CharmGlow = createDrawing("Circle", {
+            Thickness = 0, Filled = true, NumSides = 32,
+            Color = Color3.fromRGB(255, 200, 230),
+            Transparency = 0.6, Visible = false,
+        }),
+        Charm = createDrawing("Text", {
+            Size = 28, Center = true, Outline = true,
+            Color = Color3.fromRGB(255, 245, 255),
+            Transparency = 1, Visible = false,
+            Text = "♥",
+        }),
+        CharmHalo = createDrawing("Circle", {
+            Thickness = 1.5, Filled = false, NumSides = 32,
+            Color = Color3.fromRGB(255, 138, 190),
+            Transparency = 0.4, Visible = false,
+        }),
+        Halo1 = createDrawing("Circle", {
+            Thickness = 0, Filled = true, NumSides = 48,
+            Color = Color3.fromRGB(255, 182, 220),
+            Transparency = 0.92, Visible = false,
+        }),
+        Ring = createDrawing("Circle", {
+            Thickness = 2, Filled = false, NumSides = 48,
+            Color = Color3.fromRGB(255, 138, 190),
+            Transparency = 1, Visible = false,
+        }),
+        Ring2 = createDrawing("Circle", {
+            Thickness = 1, Filled = false, NumSides = 48,
+            Color = Color3.fromRGB(168, 143, 255),
+            Transparency = 0.5, Visible = false,
+        }),
+        Name = createDrawing("Text", {
+            Size = 14, Center = true, Outline = true,
+            Color = Color3.fromRGB(255, 245, 255),
+            Transparency = 1, Visible = false,
+        }),
+        HealthBarBG = createDrawing("Square", {
+            Thickness = 1, Filled = true,
+            Color = Color3.fromRGB(30, 25, 45),
+            Transparency = 1, Visible = false,
+        }),
+        HealthBar = createDrawing("Square", {
+            Thickness = 1, Filled = true,
+            Color = Color3.fromRGB(150, 245, 190),
+            Transparency = 1, Visible = false,
+        }),
+        Distance = createDrawing("Text", {
+            Size = 12, Center = true, Outline = true,
+            Color = Color3.fromRGB(210, 200, 240),
+            Transparency = 1, Visible = false,
+        }),
+        Tracer = createDrawing("Line", {
+            Thickness = 1.5,
+            Color = Color3.fromRGB(255, 138, 190),
+            Transparency = 1, Visible = false,
+        }),
+        Sparkles = {},
+    }
+    for i = 1, SPARKLE_COUNT do
+        table.insert(d.Sparkles, createDrawing("Text", {
+            Size = 14, Center = true, Outline = false,
+            Color = Color3.fromRGB(255, 220, 240),
+            Transparency = 1, Visible = false,
+            Text = "✦",
+        }))
+    end
+    Drawings[player] = d
+end
+
+local function hideAllDrawings(player)
+    if Drawings[player] then
+        for _, obj in pairs(Drawings[player]) do
+            if type(obj) == "table" then
+                for _, sp in ipairs(obj) do sp.Visible = false end
+            else
+                obj.Visible = false
+            end
+        end
+    end
+end
+
+-- ============ HELPERS ============
+local function isSameTeam(player)
+    if not Config.TeamCheck then return false end
+    if not player.Team or not LocalPlayer.Team then return false end
+    return player.Team == LocalPlayer.Team
+end
+
+local function getCharacter(player)
+    local char = player.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return nil end
+    return char, hrp, humanoid
+end
+
+local function hueToColor(h, s, v)
+    return Color3.fromHSV(h % 1, s or 0.55, v or 1)
+end
+
+-- ============ MAIN LOOP ============
+local t = 0
+local frame = 0
+local function updateESP(dt)
+    if Killed then return end
+    t += dt
+    frame += 1
+
+    local glyph = CharmPresets[Config.CharmStyle] or "♥"
+    local drawnCount = 0
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+
+        local char, hrp, humanoid = getCharacter(player)
+
+        if not Config.Enabled or not char or not hrp or humanoid.Health <= 0 or isSameTeam(player) then
+            hideAllDrawings(player)
+            continue
+        end
+
+        if not Drawings[player] then
+            createPlayerDrawings(player)
+        end
+
+        local d = Drawings[player]
+        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+        local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
+
+        if not onScreen or distance > Config.MaxDistance then
+            hideAllDrawings(player)
+            continue
+        end
+
+        drawnCount += 1
+
+        local size = char:GetExtentsSize()
+        local topPos = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, size.Y/2, 0))
+        local bottomPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, size.Y/2, 0))
+        local onScreenHeight = math.abs(topPos.Y - bottomPos.Y)
+
+        local pulse = 1 + math.sin(t * 2.2 + player.UserId) * 0.05
+        local baseRadius = (onScreenHeight * 0.62) * pulse
+
+        local baseColor
+        if Config.RainbowCharm then
+            baseColor = hueToColor((t * 0.15) + (player.UserId % 100) / 100)
+        elseif player.Team then
+            baseColor = player.TeamColor.Color:Lerp(Color3.new(1,1,1), 0.25)
+        else
+            baseColor = Palette.Accent
+        end
+        local haloColor = baseColor:Lerp(Color3.new(1,1,1), 0.35)
+
+        -- ===== FLOATING CHARM =====
+        local charmVisible = Config.ShowCharm
+        d.Charm.Visible = charmVisible
+        d.CharmGlow.Visible = charmVisible and Config.ShowCharmGlow
+        d.CharmHalo.Visible = charmVisible
+
+        if charmVisible then
+            local bob = Config.CharmBounce and math.sin(t * 3 + player.UserId) * 8 or 0
+            local charmY = topPos.Y - 28 + bob
+            local charmX = pos.X
+
+            local charmScale = math.clamp(onScreenHeight / 120, 0.7, 1.8)
+            local charmSize = math.floor(28 * charmScale)
+            local glowR = (charmSize * 0.9) * (1 + math.sin(t * 4 + player.UserId) * 0.1)
+
+            d.Charm.Text = glyph
+            d.Charm.Size = charmSize
+            d.Charm.Position = Vector2.new(charmX, charmY)
+            d.Charm.Color = baseColor:Lerp(Color3.new(1,1,1), 0.4)
+            d.Charm.Transparency = 0.05
+
+            if Config.ShowCharmGlow then
+                d.CharmGlow.Radius = glowR
+                d.CharmGlow.Position = Vector2.new(charmX, charmY)
+                d.CharmGlow.Color = haloColor
+                d.CharmGlow.Transparency = 0.55
+            end
+
+            d.CharmHalo.Radius = charmSize * 0.95
+            d.CharmHalo.Position = Vector2.new(charmX, charmY)
+            d.CharmHalo.Color = baseColor
+            d.CharmHalo.Transparency = 0.35
+            d.CharmHalo.Thickness = 1 + math.sin(t * 5 + player.UserId) * 0.5
+        end
+
+        -- ===== AURA =====
+        d.Halo1.Visible = Config.ShowAura
+        d.Ring.Visible = Config.ShowAura
+        d.Ring2.Visible = Config.ShowAura
+
+        if Config.ShowAura then
+            d.Halo1.Radius = baseRadius * 0.95
+            d.Halo1.Position = Vector2.new(pos.X, pos.Y)
+            d.Halo1.Color = haloColor
+            d.Halo1.Transparency = 0.92
+
+            d.Ring.Radius = baseRadius
+            d.Ring.Position = Vector2.new(pos.X, pos.Y)
+            d.Ring.Color = baseColor
+            d.Ring.Transparency = 0.15
+            d.Ring.Thickness = 2
+
+            local outerPulse = 1 + math.sin(t * 3 + player.UserId * 0.5) * 0.08
+            d.Ring2.Radius = baseRadius * 1.14 * outerPulse
+            d.Ring2.Position = Vector2.new(pos.X, pos.Y)
+            d.Ring2.Color = baseColor:Lerp(Palette.Accent2, 0.5)
+            d.Ring2.Transparency = 0.5
+            d.Ring2.Thickness = 1
+        end
+
+        -- ===== SPARKLES =====
+        local sparklesVisible = Config.ShowSparkles and Config.ShowAura
+        for i, sp in ipairs(d.Sparkles) do
+            sp.Visible = sparklesVisible
+            if sparklesVisible then
+                local angle = (t * 1.5) + (i - 1) * (math.pi * 2 / SPARKLE_COUNT) + (player.UserId % 100) * 0.01
+                local r = baseRadius * (1 + math.sin(t * 4 + i) * 0.04)
+                local sx = pos.X + math.cos(angle) * r
+                local sy = pos.Y + math.sin(angle) * r
+                sp.Position = Vector2.new(sx, sy)
+                local twinkle = 0.4 + 0.6 * (0.5 + 0.5 * math.sin(t * 3 + i * 1.7))
+                sp.Transparency = 1 - twinkle
+                sp.Color = baseColor:Lerp(Color3.new(1,1,1), 0.5)
+                sp.Size = 12 + (i % 3) * 2
+            end
+        end
+
+        -- ===== NAME =====
+        d.Name.Visible = Config.ShowNames
+        if Config.ShowNames then
+            local nameY = charmVisible and (topPos.Y - 28 - 22) or (pos.Y - baseRadius - 20)
+            d.Name.Text = player.Name
+            d.Name.Position = Vector2.new(pos.X, nameY)
+            d.Name.Color = baseColor:Lerp(Color3.new(1,1,1), 0.35)
+        end
+
+        -- ===== HEALTH =====
+        d.HealthBarBG.Visible = Config.ShowHealth
+        d.HealthBar.Visible = Config.ShowHealth
+        if Config.ShowHealth then
+            local hp = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+            local barH = baseRadius * 1.4
+            local barX = pos.X - baseRadius - 10
+            local barY = pos.Y - barH / 2
+            local filledH = barH * hp
+
+            d.HealthBarBG.Size = Vector2.new(3, barH)
+            d.HealthBarBG.Position = Vector2.new(barX, barY)
+            d.HealthBar.Size = Vector2.new(3, filledH)
+            d.HealthBar.Position = Vector2.new(barX, barY + (barH - filledH))
+            d.HealthBar.Color = Color3.fromRGB(
+                255 * (1 - hp) + 60,
+                255 * hp + 40,
+                90 + 40 * hp
+            )
+        end
+
+        -- ===== DISTANCE =====
+        d.Distance.Visible = Config.ShowDistance
+        if Config.ShowDistance then
+            d.Distance.Text = string.format("· %d studs ·", math.floor(distance))
+            d.Distance.Position = Vector2.new(pos.X, pos.Y + baseRadius + 10)
+            d.Distance.Color = Palette.TextDim
+        end
+
+        -- ===== TRACER =====
+        d.Tracer.Visible = Config.ShowTracers
+        if Config.ShowTracers then
+            d.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+            d.Tracer.To = Vector2.new(pos.X, pos.Y + baseRadius)
+            d.Tracer.Color = baseColor
+        end
+    end
+
+    -- Debug print every 5 seconds
+    if frame % 300 == 0 then
+        print(string.format("[Charming] running — visible: %d", drawnCount))
+    end
+end
+
+-- ============ MINIMIZE ============
+local minimized = false
+track(MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    Scroll.Visible = not minimized
+    if minimized then
+        TweenService:Create(Main, TweenInfo.new(0.25), {Size = UDim2.new(0, 280, 0, 52)}):Play()
+        MinBtn.Text = "+"
+    else
+        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 460)}):Play()
+        MinBtn.Text = "–"
+    end
+end))
+
+-- ============ PLAYER EVENTS ============
+track(Players.PlayerRemoving:Connect(function(p) clearDrawings(p) end))
+
+-- ============ ENTRANCE ============
+Main.Size = UDim2.new(0, 0, 0, 0)
+TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 280, 0, 460)
+}):Play()
+
+-- ============ RENDER LOOP ============
+track(RunService.RenderStepped:Connect(function(dt)
+    if Killed then return end
+    pcall(updateESP, dt)
+end))
+
+-- ============ KILL ============
+local function Kill()
+    if Killed then return end
+    Killed = true
+
+    for p, _ in pairs(Drawings) do clearDrawings(p) end
+    Drawings = {}
+
+    for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+    Connections = {}
+
+    for _, th in ipairs(Threads) do pcall(function() task.cancel(th) end) end
+    Threads = {}
+
+    if ScreenGui and ScreenGui.Parent then
+        local fade = TweenService:Create(Main, TweenInfo.new(0.25), {
+            Size = UDim2.new(0, 0, 0, 0), BackgroundTransparency = 1
+        })
+        fade:Play()
+        fade.Completed:Connect(function()
+            if ScreenGui then ScreenGui:Destroy() end
+        end)
+        task.delay(0.4, function()
+            if ScreenGui then pcall(function() ScreenGui:Destroy() end) end
+        end)
+    end
+
+    if getgenv then getgenv().CharmingESP = nil end
+    print("✨ Charming ESP unloaded
