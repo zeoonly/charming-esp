@@ -1,0 +1,876 @@
+-- ✨ NPC Hunter ✨
+-- ESP + Aimbot + Triggerbot with full NPC support
+-- Direct paste — works with Drawing API
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+if _G._NPCHunterCleanup then pcall(_G._NPCHunterCleanup) end
+
+-- ============ PALETTE ============
+local P = {
+    Bg = Color3.fromRGB(22, 20, 30),
+    Card = Color3.fromRGB(42, 38, 60),
+    CardHover = Color3.fromRGB(56, 50, 80),
+    Accent = Color3.fromRGB(255, 138, 190),
+    Accent2 = Color3.fromRGB(168, 143, 255),
+    Text = Color3.fromRGB(245, 240, 255),
+    TextDim = Color3.fromRGB(170, 162, 200),
+    Success = Color3.fromRGB(150, 245, 190),
+    Danger = Color3.fromRGB(255, 105, 120),
+    NPCColor = Color3.fromRGB(255, 100, 100),
+    Stroke = Color3.fromRGB(80, 72, 110),
+}
+
+-- ============ CONFIG ============
+local Config = {
+    -- ESP
+    ESPEnabled = true,
+    TargetPlayers = true,
+    TargetNPCs = true,
+    ThickOutline = true,
+    ShowFill = true,
+    Rainbow = false,
+    TeamCheck = true,
+    ThroughWalls = true,
+    PlayerColor = Color3.fromRGB(255, 255, 255),
+    NPCColor = Color3.fromRGB(255, 100, 100),
+    FillTransparency = 0.85,
+    BoxThickness = 0.15,
+    MaxDistance = 2000,
+
+    -- Aimbot
+    AimbotEnabled = false,
+    AimbotKey = Enum.UserInputType.MouseButton2,
+    AimbotFOV = 150,
+    AimbotSmoothing = 0.15,
+    AimbotVisibleCheck = true,
+    AimbotDrawFOV = true,
+    AimbotTeamCheck = true,
+    AimbotTargetNPCs = true,
+    AimbotMaxDistance = 1000,
+
+    -- Triggerbot
+    TriggerbotEnabled = false,
+    TriggerbotDelay = 0.05,
+    TriggerbotFOV = 12,
+    TriggerbotTeamCheck = true,
+    TriggerbotTargetNPCs = true,
+    TriggerbotMaxDistance = 1000,
+    TriggerbotVisibleCheck = true,
+
+    FOVColor = Color3.fromRGB(255, 138, 190),
+}
+
+-- ============ STATE ============
+local Connections = {}
+local PlayerESP = {}
+local NPCESP = {}
+local ScreenGui
+local Killed = false
+local AimbotHeld = false
+local AimbotTarget = nil
+local TriggerCooldown = 0
+local TriggerActive = false
+local FOVCircle, TriggerFOVCircle
+local hasDrawing = (Drawing and Drawing.new)
+
+local function track(c)
+    table.insert(Connections, c)
+    return c
+end
+
+-- ============ UI ROOT ============
+ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "NPCHunter"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+
+local ok = pcall(function() ScreenGui.Parent = CoreGui end)
+if not ok then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local function corner(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 10)
+    c.Parent = p
+end
+local function stroke(p, color, thick, transp)
+    local s = Instance.new("UIStroke")
+    s.Color = color or P.Stroke
+    s.Thickness = thick or 1
+    s.Transparency = transp or 0.3
+    s.Parent = p
+end
+local function gradient(p, c1, c2, rot)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(c1, c2)
+    g.Rotation = rot or 45
+    g.Parent = p
+end
+
+-- ============ WINDOW ============
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 280, 0, 580)
+Main.Position = UDim2.new(0.03, 0, 0.12, 0)
+Main.BackgroundColor3 = P.Bg
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+corner(Main, 16)
+stroke(Main, P.Stroke, 1.5, 0.4)
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 52)
+Header.BackgroundColor3 = P.Card
+Header.BorderSizePixel = 0
+Header.Parent = Main
+corner(Header, 16)
+gradient(Header, P.Accent2, P.Accent, 90)
+
+local HFix = Instance.new("Frame")
+HFix.Size = UDim2.new(1, 0, 0, 16)
+HFix.Position = UDim2.new(0, 0, 1, -16)
+HFix.BackgroundColor3 = P.Card
+HFix.BorderSizePixel = 0
+HFix.ZIndex = Header.ZIndex + 1
+HFix.Parent = Header
+
+local Icon = Instance.new("TextLabel")
+Icon.Size = UDim2.new(0, 30, 0, 30)
+Icon.Position = UDim2.new(0, 14, 0.5, -15)
+Icon.BackgroundTransparency = 1
+Icon.Text = "🤖"
+Icon.TextSize = 22
+Icon.Font = Enum.Font.GothamBold
+Icon.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -140, 0, 20)
+Title.Position = UDim2.new(0, 48, 0, 10)
+Title.BackgroundTransparency = 1
+Title.Text = "NPC Hunter"
+Title.TextColor3 = P.Text
+Title.TextSize = 16
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+local Sub = Instance.new("TextLabel")
+Sub.Size = UDim2.new(1, -140, 0, 14)
+Sub.Position = UDim2.new(0, 48, 0, 28)
+Sub.BackgroundTransparency = 1
+Sub.Text = "players + npcs"
+Sub.TextColor3 = P.TextDim
+Sub.TextSize = 11
+Sub.Font = Enum.Font.Gotham
+Sub.TextXAlignment = Enum.TextXAlignment.Left
+Sub.Parent = Header
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 26, 0, 26)
+MinBtn.Position = UDim2.new(1, -68, 0.5, -13)
+MinBtn.BackgroundColor3 = P.Card
+MinBtn.Text = "–"
+MinBtn.TextColor3 = P.Text
+MinBtn.TextSize = 18
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.BorderSizePixel = 0
+MinBtn.AutoButtonColor = false
+MinBtn.Parent = Header
+corner(MinBtn, 8)
+
+local KillBtn = Instance.new("TextButton")
+KillBtn.Size = UDim2.new(0, 26, 0, 26)
+KillBtn.Position = UDim2.new(1, -36, 0.5, -13)
+KillBtn.BackgroundColor3 = P.Card
+KillBtn.Text = "✕"
+KillBtn.TextColor3 = P.Danger
+KillBtn.TextSize = 16
+KillBtn.Font = Enum.Font.GothamBold
+KillBtn.BorderSizePixel = 0
+KillBtn.AutoButtonColor = false
+KillBtn.Parent = Header
+corner(KillBtn, 8)
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -20, 1, -72)
+Scroll.Position = UDim2.new(0, 10, 0, 62)
+Scroll.BackgroundTransparency = 1
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 3
+Scroll.ScrollBarImageColor3 = P.Accent2
+Scroll.ScrollBarImageTransparency = 0.4
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = Main
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 8)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Scroll
+
+local Pad = Instance.new("UIPadding")
+Pad.PaddingTop = UDim.new(0, 4)
+Pad.PaddingBottom = UDim.new(0, 8)
+Pad.Parent = Scroll
+
+-- ============ UI HELPERS ============
+local function sectionLabel(text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -8, 0, 22)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "  " .. text
+    lbl.TextColor3 = P.TextDim
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Parent = Scroll
+end
+
+local function createToggle(name, key, emoji)
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1, -8, 0, 40)
+    Card.BackgroundColor3 = P.Card
+    Card.BorderSizePixel = 0
+    Card.Parent = Scroll
+    corner(Card, 10)
+    stroke(Card, P.Stroke, 1, 0.6)
+
+    local Bar = Instance.new("Frame")
+    Bar.Size = UDim2.new(0, 3, 0.6, 0)
+    Bar.Position = UDim2.new(0, 0, 0.2, 0)
+    Bar.BackgroundColor3 = P.Accent
+    Bar.BorderSizePixel = 0
+    Bar.Parent = Card
+    corner(Bar, 4)
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -70, 1, 0)
+    Label.Position = UDim2.new(0, 14, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Text = (emoji or "") .. "  " .. name
+    Label.TextColor3 = P.Text
+    Label.TextSize = 13
+    Label.Font = Enum.Font.GothamMedium
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Card
+
+    local Track_ = Instance.new("Frame")
+    Track_.Size = UDim2.new(0, 40, 0, 22)
+    Track_.Position = UDim2.new(1, -50, 0.5, -11)
+    Track_.BackgroundColor3 = Config[key] and P.Success or P.Bg
+    Track_.BorderSizePixel = 0
+    Track_.Parent = Card
+    corner(Track_, 11)
+    stroke(Track_, P.Stroke, 1, 0.5)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.new(0, 16, 0, 16)
+    Knob.Position = Config[key] and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+    Knob.BackgroundColor3 = Color3.new(1,1,1)
+    Knob.BorderSizePixel = 0
+    Knob.Parent = Track_
+    corner(Knob, 8)
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, 0, 1, 0)
+    Btn.BackgroundTransparency = 1
+    Btn.Text = ""
+    Btn.Parent = Card
+
+    track(Btn.MouseButton1Click:Connect(function()
+        if Killed then return end
+        Config[key] = not Config[key]
+        local on = Config[key]
+        TweenService:Create(Track_, TweenInfo.new(0.2), {BackgroundColor3 = on and P.Success or P.Bg}):Play()
+        TweenService:Create(Knob, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = on and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        }):Play()
+    end))
+end
+
+local ActiveSlider = nil
+local function createSlider(name, key, minVal, maxVal, step, emoji)
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1, -8, 0, 56)
+    Card.BackgroundColor3 = P.Card
+    Card.BorderSizePixel = 0
+    Card.Parent = Scroll
+    corner(Card, 10)
+    stroke(Card, P.Stroke, 1, 0.6)
+
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -60, 0, 20)
+    Label.Position = UDim2.new(0, 14, 0, 4)
+    Label.BackgroundTransparency = 1
+    Label.Text = (emoji or "") .. "  " .. name
+    Label.TextColor3 = P.Text
+    Label.TextSize = 13
+    Label.Font = Enum.Font.GothamMedium
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = Card
+
+    local VLabel = Instance.new("TextLabel")
+    VLabel.Size = UDim2.new(0, 60, 0, 20)
+    VLabel.Position = UDim2.new(1, -70, 0, 4)
+    VLabel.BackgroundTransparency = 1
+    VLabel.Text = tostring(Config[key])
+    VLabel.TextColor3 = P.Accent
+    VLabel.TextSize = 13
+    VLabel.Font = Enum.Font.GothamBold
+    VLabel.TextXAlignment = Enum.TextXAlignment.Right
+    VLabel.Parent = Card
+
+    local BG = Instance.new("Frame")
+    BG.Size = UDim2.new(1, -28, 0, 6)
+    BG.Position = UDim2.new(0, 14, 1, -16)
+    BG.BackgroundColor3 = P.Bg
+    BG.BorderSizePixel = 0
+    BG.Parent = Card
+    corner(BG, 3)
+
+    local Fill = Instance.new("Frame")
+    Fill.Size = UDim2.new((Config[key] - minVal) / (maxVal - minVal), 0, 1, 0)
+    Fill.BackgroundColor3 = P.Accent
+    Fill.BorderSizePixel = 0
+    Fill.Parent = BG
+    corner(Fill, 3)
+
+    local function updateFromX(x)
+        local rel = math.clamp((x - BG.AbsolutePosition.X) / BG.AbsoluteSize.X, 0, 1)
+        local val = minVal + (maxVal - minVal) * rel
+        val = math.floor(val / step + 0.5) * step
+        Config[key] = val
+        VLabel.Text = tostring(val)
+        Fill.Size = UDim2.new(rel, 0, 1, 0)
+    end
+
+    local hit = Instance.new("TextButton")
+    hit.Size = UDim2.new(1, 0, 1, 0)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.Parent = BG
+
+    track(hit.MouseButton1Down:Connect(function()
+        ActiveSlider = updateFromX
+        updateFromX(UserInputService:GetMouseLocation().X)
+    end))
+end
+
+track(UserInputService.InputChanged:Connect(function(input)
+    if ActiveSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
+        ActiveSlider(input.Position.X)
+    end
+end))
+track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        ActiveSlider = nil
+    end
+end))
+
+-- FOV circles
+if hasDrawing then
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Thickness = 1.5
+    FOVCircle.NumSides = 60
+    FOVCircle.Filled = false
+    FOVCircle.Color = Config.FOVColor
+    FOVCircle.Transparency = 0.6
+    FOVCircle.Visible = false
+
+    TriggerFOVCircle = Drawing.new("Circle")
+    TriggerFOVCircle.Thickness = 1
+    TriggerFOVCircle.NumSides = 40
+    TriggerFOVCircle.Filled = false
+    TriggerFOVCircle.Color = P.Danger
+    TriggerFOVCircle.Transparency = 0.5
+    TriggerFOVCircle.Visible = false
+end
+
+-- ============ UI BUILD ============
+sectionLabel("✦ VISUALS")
+createToggle("Enable ESP", "ESPEnabled", "👁")
+createToggle("Target Players", "TargetPlayers", "🧍")
+createToggle("Target NPCs", "TargetNPCs", "🤖")
+createToggle("Thick Outline", "ThickOutline", "▢")
+createToggle("Show Fill", "ShowFill", "🎨")
+createToggle("Through Walls", "ThroughWalls", "👻")
+createToggle("Rainbow", "Rainbow", "🌈")
+createToggle("Team Check", "TeamCheck", "🤝")
+
+sectionLabel("✦ AIMBOT")
+createToggle("Enable Aimbot", "AimbotEnabled", "🎯")
+createToggle("Visible Only", "AimbotVisibleCheck", "👀")
+createToggle("Draw FOV", "AimbotDrawFOV", "⭕")
+createToggle("Team Check", "AimbotTeamCheck", "🛡")
+createToggle("Target NPCs", "AimbotTargetNPCs", "🤖")
+createSlider("FOV", "AimbotFOV", 20, 400, 5, "📐")
+createSlider("Smoothness", "AimbotSmoothing", 0.02, 0.9, 0.01, "💧")
+
+sectionLabel("✦ TRIGGERBOT")
+createToggle("Enable Trigger", "TriggerbotEnabled", "⚡")
+createToggle("Visible Only", "TriggerbotVisibleCheck", "👀")
+createToggle("Team Check", "TriggerbotTeamCheck", "🛡")
+createToggle("Target NPCs", "TriggerbotTargetNPCs", "🤖")
+createSlider("Delay (s)", "TriggerbotDelay", 0.0, 1.0, 0.01, "⏱")
+createSlider("Trigger FOV", "TriggerbotFOV", 2, 60, 1, "🎯")
+
+-- ============ TARGET HELPERS ============
+local function isSameTeam(player, useTeamCheck)
+    if not useTeamCheck then return false end
+    if not player.Team or not LocalPlayer.Team then return false end
+    return player.Team == LocalPlayer.Team
+end
+
+-- Returns array of {part=, model=, isNPC=, player=}
+local function getTargets(partName, useTeamCheck, maxDist, includeNPCs)
+    local myPos = Camera.CFrame.Position
+    local list = {}
+
+    -- Players
+    if Config.TargetPlayers then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+            if isSameTeam(player, useTeamCheck) then continue end
+            local char = player.Character
+            if not char then continue end
+            local part = char:FindFirstChild(partName) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+            if not part then continue end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then continue end
+            local dist = (myPos - part.Position).Magnitude
+            if dist > maxDist then continue end
+            list[#list+1] = { part = part, model = char, isNPC = false, player = player }
+        end
+    end
+
+    -- NPCs
+    if includeNPCs and Config.TargetNPCs then
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if not obj:IsA("Model") then continue end
+            if obj == LocalPlayer.Character then continue end
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then continue end
+            local part = obj:FindFirstChild(partName) or obj:FindFirstChild("Head") or obj:FindFirstChild("HumanoidRootPart")
+            if not part then continue end
+            local dist = (myPos - part.Position).Magnitude
+            if dist > maxDist then continue end
+            list[#list+1] = { part = part, model = obj, isNPC = true, player = nil }
+        end
+    end
+
+    return list
+end
+
+local function isVisible(part, useCheck)
+    if not useCheck then return true end
+    local origin = Camera.CFrame.Position
+    local ray = Ray.new(origin, part.Position - origin)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Camera})
+    if hit and (hit == part or hit:IsDescendantOf(part.Parent)) then
+        return true
+    end
+    return false
+end
+
+local function getClosestToCursor(fovRadius, partName, useTeamCheck, maxDist, includeNPCs)
+    local mouse = UserInputService:GetMouseLocation()
+    local closest, closestDist = nil, fovRadius
+    for _, tgt in ipairs(getTargets(partName, useTeamCheck, maxDist, includeNPCs)) do
+        local screenPos, onScreen = Camera:WorldToViewportPoint(tgt.part.Position)
+        if not onScreen then continue end
+        local dx = screenPos.X - mouse.X
+        local dy = screenPos.Y - mouse.Y
+        local d = math.sqrt(dx*dx + dy*dy)
+        if d < closestDist then
+            closestDist = d
+            closest = tgt
+        end
+    end
+    return closest
+end
+
+local function isCrosshairOnTarget(fovTol, partName, useTeamCheck, maxDist, includeNPCs)
+    local mouse = UserInputService:GetMouseLocation()
+    for _, tgt in ipairs(getTargets(partName, useTeamCheck, maxDist, includeNPCs)) do
+        local screenPos, onScreen = Camera:WorldToViewportPoint(tgt.part.Position)
+        if not onScreen then continue end
+        local dx = screenPos.X - mouse.X
+        local dy = screenPos.Y - mouse.Y
+        local d = math.sqrt(dx*dx + dy*dy)
+        if d <= fovTol then
+            if isVisible(tgt.part, Config.TriggerbotVisibleCheck) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ============ PLAYER ESP ============
+local function removePlayerESP(player)
+    if PlayerESP[player] then
+        pcall(function() if PlayerESP[player].HL then PlayerESP[player].HL:Destroy() end end)
+        pcall(function() if PlayerESP[player].Box then PlayerESP[player].Box:Destroy() end end)
+        if PlayerESP[player].Conn then PlayerESP[player].Conn:Disconnect() end
+        PlayerESP[player] = nil
+    end
+end
+
+local function attachPlayerESP(player)
+    if player == LocalPlayer then return end
+    removePlayerESP(player)
+    local char = player.Character
+    if not char then return end
+
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Config.PlayerColor
+    hl.FillTransparency = Config.FillTransparency
+    hl.OutlineColor = Config.PlayerColor
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+    hl.Adornee = char
+    hl.Parent = char
+
+    local box = Instance.new("SelectionBox")
+    box.Color3 = Config.PlayerColor
+    box.LineThickness = Config.BoxThickness
+    box.SurfaceTransparency = 1
+    box.Adornee = char
+    box.Parent = char
+
+    local conn = player.CharacterAdded:Connect(function()
+        if Killed then return end
+        task.wait(0.3)
+        attachPlayerESP(player)
+    end)
+
+    PlayerESP[player] = { HL = hl, Box = box, Conn = conn }
+end
+
+-- ============ NPC ESP ============
+local function removeNPCESP(model)
+    if NPCESP[model] then
+        pcall(function() if NPCESP[model].HL then NPCESP[model].HL:Destroy() end end)
+        pcall(function() if NPCESP[model].Box then NPCESP[model].Box:Destroy() end end)
+        NPCESP[model] = nil
+    end
+end
+
+local function attachNPCESP(model)
+    if NPCESP[model] then return end
+    local hl = Instance.new("Highlight")
+    hl.FillColor = Config.NPCColor
+    hl.FillTransparency = Config.FillTransparency
+    hl.OutlineColor = Config.NPCColor
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+    hl.Adornee = model
+    hl.Parent = model
+
+    local box = Instance.new("SelectionBox")
+    box.Color3 = Config.NPCColor
+    box.LineThickness = Config.BoxThickness
+    box.SurfaceTransparency = 1
+    box.Adornee = model
+    box.Parent = model
+
+    NPCESP[model] = { HL = hl, Box = box }
+end
+
+local function scanNPCs()
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if not obj:IsA("Model") then continue end
+        if obj == LocalPlayer.Character then continue end
+        if obj:FindFirstChildOfClass("Humanoid") then
+            if not NPCESP[obj] then
+                attachNPCESP(obj)
+            end
+        end
+    end
+    -- Clean up dead/destroyed NPCs
+    for model, _ in pairs(NPCESP) do
+        if not model.Parent then
+            removeNPCESP(model)
+        end
+    end
+end
+
+-- ============ AIMBOT ============
+local aimAccum = 0
+local function applyAimbot(dt)
+    if not Config.AimbotEnabled or not AimbotHeld then
+        AimbotTarget = nil
+        return
+    end
+    aimAccum += dt
+    if aimAccum < 0.05 and AimbotTarget and AimbotTarget.part.Parent then
+        -- reuse
+    else
+        aimAccum = 0
+        AimbotTarget = getClosestToCursor(Config.AimbotFOV, "Head", Config.AimbotTeamCheck, Config.AimbotMaxDistance, Config.AimbotTargetNPCs)
+    end
+    if not AimbotTarget then return end
+    if not isVisible(AimbotTarget.part, Config.AimbotVisibleCheck) then return end
+
+    local currentCF = Camera.CFrame
+    local desiredCF = CFrame.new(currentCF.Position, AimbotTarget.part.Position)
+    local smoothFactor = math.clamp((1 - Config.AimbotSmoothing) * dt * 60, 0, 1)
+    Camera.CFrame = currentCF:Lerp(desiredCF, smoothFactor)
+end
+
+-- ============ TRIGGERBOT ============
+local trigAccum = 0
+local function applyTriggerbot(dt)
+    TriggerActive = false
+    if not Config.TriggerbotEnabled then return end
+    TriggerCooldown = math.max(0, TriggerCooldown - dt)
+    if TriggerCooldown > 0 then return end
+    trigAccum += dt
+    if trigAccum < 0.03 then return end
+    trigAccum = 0
+
+    if isCrosshairOnTarget(Config.TriggerbotFOV, "Head", Config.TriggerbotTeamCheck, Config.TriggerbotMaxDistance, Config.TriggerbotTargetNPCs) then
+        TriggerActive = true
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        end)
+        task.delay(Config.TriggerbotDelay, function()
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+            end)
+        end)
+        TriggerCooldown = Config.TriggerbotDelay + 0.08
+    end
+end
+
+-- ============ MAIN LOOP ============
+local t = 0
+local espTick = 0
+local npcTick = 0
+local runConn
+runConn = RunService.RenderStepped:Connect(function(dt)
+    if Killed then return end
+    t += dt
+    espTick += dt
+    npcTick += dt
+
+    -- NPC scan every 1s (throttled for performance)
+    if npcTick >= 1.0 then
+        npcTick = 0
+        if Config.TargetNPCs then scanNPCs() end
+    end
+
+    -- ESP update every 0.1s
+    if espTick >= 0.1 then
+        espTick = 0
+
+        -- Players
+        for player, data in pairs(PlayerESP) do
+            local hl, box = data.HL, data.Box
+            if not hl or not hl.Parent then continue end
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+            if not Config.ESPEnabled or not Config.TargetPlayers
+                or not char or not hrp or not hum or hum.Health <= 0
+                or isSameTeam(player, Config.TeamCheck)
+            then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
+
+            local dist = (Camera.CFrame.Position - hrp.Position).Magnitude
+            if dist > Config.MaxDistance then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
+
+            hl.Enabled = true
+            hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+
+            local c
+            if Config.Rainbow then
+                c = Color3.fromHSV((t * 0.15 + player.UserId % 100 / 100) % 1, 0.6, 1)
+            elseif player.Team then
+                c = player.TeamColor.Color
+            else
+                c = Config.PlayerColor
+            end
+
+            hl.OutlineColor = c
+            hl.FillColor = c
+            hl.OutlineTransparency = 0
+            hl.FillTransparency = Config.ShowFill and Config.FillTransparency or 1
+            if box then
+                box.Visible = Config.ThickOutline
+                box.Color3 = c
+            end
+        end
+
+        -- NPCs
+        for model, data in pairs(NPCESP) do
+            local hl, box = data.HL, data.Box
+            if not hl or not hl.Parent or not model.Parent then continue end
+            local hum = model:FindFirstChildOfClass("Humanoid")
+            local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Head")
+
+            if not Config.ESPEnabled or not Config.TargetNPCs or not hum or hum.Health <= 0 then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
+
+            local dist = root and (Camera.CFrame.Position - root.Position).Magnitude or 0
+            if dist > Config.MaxDistance then
+                hl.Enabled = false
+                if box then box.Visible = false end
+                continue
+            end
+
+            hl.Enabled = true
+            hl.DepthMode = Config.ThroughWalls and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+
+            local c = Config.NPCColor
+            if Config.Rainbow then
+                c = Color3.fromHSV((t * 0.15 + model:GetDebugId() % 100 / 100) % 1, 0.6, 1)
+            end
+
+            hl.OutlineColor = c
+            hl.FillColor = c
+            hl.OutlineTransparency = 0
+            hl.FillTransparency = Config.ShowFill and Config.FillTransparency or 1
+            if box then
+                box.Visible = Config.ThickOutline
+                box.Color3 = c
+            end
+        end
+    end
+
+    pcall(applyAimbot, dt)
+    pcall(applyTriggerbot, dt)
+
+    if hasDrawing then
+        local vp = Camera.ViewportSize
+        local center = Vector2.new(vp.X / 2, vp.Y / 2)
+        if FOVCircle then
+            FOVCircle.Visible = Config.AimbotEnabled and Config.AimbotDrawFOV
+            if FOVCircle.Visible then
+                FOVCircle.Position = center
+                FOVCircle.Radius = Config.AimbotFOV
+                FOVCircle.Color = AimbotTarget and P.Success or Config.FOVColor
+            end
+        end
+        if TriggerFOVCircle then
+            TriggerFOVCircle.Visible = Config.TriggerbotEnabled
+            if TriggerFOVCircle.Visible then
+                TriggerFOVCircle.Position = center
+                TriggerFOVCircle.Radius = Config.TriggerbotFOV
+                TriggerFOVCircle.Color = TriggerActive and P.Success or P.Danger
+            end
+        end
+    end
+end)
+
+-- ============ INPUT ============
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType == Config.AimbotKey then AimbotHeld = true end
+    if input.KeyCode == Enum.KeyCode.Delete or input.KeyCode == Enum.KeyCode.End then
+        if _G._NPCHunterCleanup then _G._NPCHunterCleanup() end
+    end
+end))
+track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Config.AimbotKey then AimbotHeld = false end
+end))
+
+-- ============ PLAYER SETUP ============
+for _, p in ipairs(Players:GetPlayers()) do
+    if p.Character then attachPlayerESP(p) end
+end
+track(Players.PlayerAdded:Connect(function(p)
+    if p.Character then attachPlayerESP(p) end
+    p.CharacterAdded:Connect(function()
+        task.wait(0.3)
+        attachPlayerESP(p)
+    end)
+end))
+track(Players.PlayerRemoving:Connect(removePlayerESP))
+
+-- ============ MINIMIZE ============
+local minimized = false
+track(MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    Scroll.Visible = not minimized
+    if minimized then
+        TweenService:Create(Main, TweenInfo.new(0.25), {Size = UDim2.new(0, 280, 0, 52)}):Play()
+        MinBtn.Text = "+"
+    else
+        TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 280, 0, 580)}):Play()
+        MinBtn.Text = "–"
+    end
+end))
+
+-- Hover effects for buttons
+track(MinBtn.MouseEnter:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = P.Accent}):Play()
+end))
+track(MinBtn.MouseLeave:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = P.Card}):Play()
+end))
+track(KillBtn.MouseEnter:Connect(function()
+    TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = P.Danger, TextColor3 = Color3.new(1,1,1)}):Play()
+end))
+track(KillBtn.MouseLeave:Connect(function()
+    TweenService:Create(KillBtn, TweenInfo.new(0.2), {BackgroundColor3 = P.Card, TextColor3 = P.Danger}):Play()
+end))
+
+-- ============ ENTRANCE ============
+Main.Size = UDim2.new(0, 0, 0, 0)
+TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size = UDim2.new(0, 280, 0, 580)
+}):Play()
+
+-- ============ KILL ============
+_G._NPCHunterCleanup = function()
+    if Killed then return end
+    Killed = true
+
+    if runConn then pcall(function() runConn:Disconnect() end) end
+    for _, c in ipairs(Connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    Connections = {}
+
+    for p, _ in pairs(PlayerESP) do removePlayerESP(p) end
+    PlayerESP = {}
+    for m, _ in pairs(NPCESP) do removeNPCESP(m) end
+    NPCESP = {}
+
+    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
+    if TriggerFOVCircle then pcall(function() TriggerFOVCircle:Remove() end) end
+    FOVCircle = nil
+    TriggerFOVCircle = nil
+
+    if ScreenGui and ScreenGui.Parent then ScreenGui:Destroy() end
+
+    _G._NPCHunterCleanup = nil
+    print("✨ NPC Hunter unloaded")
+end
+
+track(KillBtn.MouseButton1Click:Connect(_G._NPCHunterCleanup))
+
+print("✨ NPC Hunter loaded")
+print("   ESP: ON   Aimbot: RIGHT MOUSE   Kill: DELETE or ✕")
